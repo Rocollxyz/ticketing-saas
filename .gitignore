@@ -1,0 +1,25 @@
+node_modules/
+dist/
+.turbo/
+*.log
+
+# Entorno y secretos (nunca versionar — §7 ARCHITECTURE.md)
+.env
+.env.*
+!.env.example
+
+# Compilación y cachés
+.next/
+.expo/
+*.tsbuildinfo
+
+# Datos generados en desarrollo (imágenes subidas, emails y QR de prueba)
+uploads/
+dev-outbox/
+dev-qr/
+
+# Plugins de FooEvents: código comercial de terceros, solo como referencia local
+foo/
+
+# Sistema
+.DS_Store

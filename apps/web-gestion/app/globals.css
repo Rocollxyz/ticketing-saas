@@ -1,0 +1,66 @@
+/* Paleta y piezas comunes de la consola del promotor (misma estética oscura). */
+:root {
+  color-scheme: dark;
+  --bg: #0f1115;
+  --card: #171a21;
+  --card-2: #1d212a;
+  --border: #2b313c;
+  --text: #e9edf2;
+  --muted: #9aa3b2;
+  --faint: #7a8190;
+  --accent: #5b9dff;
+  --green: #3ecf8e;
+  --amber: #e0a23c;
+  --red: #ff6b6b;
+}
+
+* { box-sizing: border-box; }
+a { color: var(--accent); }
+
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+.muted { color: var(--muted); }
+.faint { color: var(--faint); font-size: 12px; }
+.row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.spacer { flex: 1; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px 16px; }
+.stack { display: grid; gap: 12px; }
+
+.field { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+.field .hint { font-size: 11px; color: var(--faint); }
+.input, .select, .textarea {
+  width: 100%; padding: 9px 11px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--bg); color: var(--text); font: inherit; font-size: 14px;
+}
+.textarea { min-height: 90px; resize: vertical; }
+.input:focus, .select:focus, .textarea:focus { outline: 2px solid #5b9dff55; border-color: var(--accent); }
+.check { display: flex; gap: 8px; align-items: center; font-size: 14px; color: var(--text); }
+
+.btn {
+  padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--card-2);
+  color: var(--text); cursor: pointer; font-size: 14px; white-space: nowrap;
+}
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.success { background: var(--green); border-color: var(--green); color: #08130d; font-weight: 600; }
+.btn.danger { color: var(--red); }
+.btn.link { background: none; border: none; color: var(--accent); padding: 0; }
+
+.badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+.badge.DRAFT { background: #2b313c; color: var(--muted); }
+.badge.ON_SALE { background: #3ecf8e22; color: var(--green); }
+.badge.CLOSED { background: #e0a23c22; color: var(--amber); }
+.badge.CANCELLED { background: #ff6b6b22; color: var(--red); }
+
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin: 16px 0; }
+.tab { padding: 8px 14px; background: none; border: none; color: var(--muted); cursor: pointer; font-size: 14px;
+  border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tab.active { color: var(--text); border-bottom-color: var(--accent); }
+
+.notice { padding: 10px 12px; border-radius: 8px; font-size: 14px; }
+.notice.error { background: #ff6b6b18; color: var(--red); }
+.notice.ok { background: #3ecf8e18; color: var(--green); }
+.notice.warn { background: #e0a23c18; color: var(--amber); }
+
+.section-title { font-size: 15px; margin: 0 0 10px; }
+.meter { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+.meter > span { display: block; height: 100%; background: var(--accent); }

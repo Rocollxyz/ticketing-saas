@@ -1,0 +1,29 @@
+{
+  "name": "ticketing-saas",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Plataforma de Ticketing SaaS multi-tenant",
+  "packageManager": "npm@11.12.1",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck",
+    "db:generate": "npm run db:generate -w @ticketing/database",
+    "db:migrate": "npm run db:migrate -w @ticketing/database",
+    "infra:up": "docker compose up -d",
+    "infra:down": "docker compose down"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "expo": {
+    "name": "Acceso",
+    "slug": "acceso-movil",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Se usa la cámara para escanear las entradas en el acceso."
+      }
+    },
+    "android": {
+      "permissions": ["CAMERA"]
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        { "cameraPermission": "Permitir acceso a la cámara para escanear las entradas." }
+      ]
+    ]
+  }
+}
