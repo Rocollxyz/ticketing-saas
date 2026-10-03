@@ -7,6 +7,7 @@ dist/
 .env
 .env.*
 !.env.example
+!.env.local.example
 
 # Compilación y cachés
 .next/
@@ -14,12 +15,12 @@ dist/
 *.tsbuildinfo
 
 # Datos generados en desarrollo (imágenes subidas, emails y QR de prueba)
-uploads/
-dev-outbox/
-dev-qr/
+/uploads/
+/dev-outbox/
+/dev-qr/
 
 # Plugins de FooEvents: código comercial de terceros, solo como referencia local
-foo/
+/foo/
 
 # Sistema
 .DS_Store
