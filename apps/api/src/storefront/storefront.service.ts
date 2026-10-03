@@ -3,10 +3,12 @@ import { schema } from "@ticketing/database";
 import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import { currentPriceCents, qualified, seatTaken } from "../catalog/pricing";
 import { eventSalesState, SALES_REASON_TEXT, ticketTypeSalesState } from "../catalog/sales-rules";
+import { seatLabel } from "../catalog/seat-label";
 import { AdminDb } from "../database/admin-db.service";
 import { tenantContext } from "../database/tenant-context";
 import { TenantDb } from "../database/tenant-db.service";
 import { CheckoutService } from "../checkout/checkout.service";
+import { listTx as listFieldsTx } from "../events/attendee-fields.service";
 import { HoldReleaseService } from "../reservation/hold-release.service";
 import { ReservationService } from "../reservation/reservation.service";
 
@@ -274,6 +276,17 @@ export class StorefrontService {
             postalCode: venue.postalCode,
             mapsUrl: venue.mapsUrl,
           },
+          // Formulario de asistentes (solo lo necesario para pintarlo).
+          attendeeFields: (await listFieldsTx(tx, eventId)).map((f) => ({
+            id: f.id,
+            presetKey: f.presetKey,
+            label: f.label,
+            type: f.type,
+            required: f.required,
+            helpText: f.helpText,
+            options: f.options,
+            ticketTypeIds: f.ticketTypeIds,
+          })),
           sales: st.open
             ? { open: true, message: null }
             : { open: false, message: SALES_REASON_TEXT[st.reason], from: st.from ?? null },
@@ -317,11 +330,32 @@ export class StorefrontService {
     selection: { seatIds?: string[]; quantities?: Record<string, number> },
     sessionId: string,
   ) {
-    return this.withTenant(slug, () =>
-      selection.quantities
-        ? this.reservation.createHoldForQuantities(eventId, selection.quantities, sessionId)
-        : this.reservation.createHold(eventId, selection.seatIds ?? [], sessionId),
-    );
+    return this.withTenant(slug, async () => {
+      const hold = selection.quantities
+        ? await this.reservation.createHoldForQuantities(eventId, selection.quantities, sessionId)
+        : await this.reservation.createHold(eventId, selection.seatIds ?? [], sessionId);
+      // Qué plaza y categoría tocó a cada entrada (en entrada general las elige el
+      // servidor): el formulario de asistentes se monta por plaza con esto.
+      const seats = await this.db.run((tx) =>
+        tx
+          .select({
+            seatId: schema.seat.id,
+            ticketTypeId: schema.seat.ticketTypeId,
+            fila: schema.seat.fila,
+            numero: schema.seat.numero,
+            isGeneral: schema.seat.isGeneral,
+            categoria: schema.ticketType.name,
+          })
+          .from(schema.seat)
+          .leftJoin(schema.ticketType, eq(schema.ticketType.id, schema.seat.ticketTypeId))
+          .where(inArray(schema.seat.id, hold.seatIds))
+          .orderBy(schema.seat.numero),
+      );
+      return {
+        ...hold,
+        seats: seats.map((s) => ({ seatId: s.seatId, ticketTypeId: s.ticketTypeId, label: seatLabel(s) })),
+      };
+    });
   }
 
   /**
@@ -359,11 +393,24 @@ export class StorefrontService {
    * El comprador de la tienda es anónimo: el email es la ÚNICA vía de entregarle las
    * entradas (outbox → PDF por correo), así que aquí es obligatorio.
    */
-  createCheckout(slug: string, holdId: string, buyerEmail?: string) {
+  createCheckout(
+    slug: string,
+    holdId: string,
+    buyerEmail?: string,
+    buyer: { name?: unknown; attendees?: unknown } = {},
+  ) {
     const email = buyerEmail?.trim().toLowerCase();
     if (!email || email.length > 254 || !EMAIL_RE.test(email)) {
       throw new BadRequestException("Email del comprador obligatorio y válido");
     }
-    return this.withTenant(slug, () => this.checkout.createCheckout(holdId, email));
+    if (buyer.name != null && (typeof buyer.name !== "string" || buyer.name.length > 120)) {
+      throw new BadRequestException("Nombre del comprador inválido");
+    }
+    return this.withTenant(slug, () =>
+      this.checkout.createCheckout(holdId, email, {
+        name: buyer.name as string | undefined,
+        attendees: buyer.attendees,
+      }),
+    );
   }
 }

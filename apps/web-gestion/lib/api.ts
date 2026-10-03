@@ -233,6 +233,56 @@ export const getProfile = (token: string) => authed<Profile>(token, "/profile");
 export const updateProfile = (token: string, data: Partial<Profile>) =>
   authed<Profile>(token, "/profile", { method: "PATCH", body: JSON.stringify(data) });
 
+export type AttendeeFieldType =
+  | "text"
+  | "textarea"
+  | "email"
+  | "phone"
+  | "number"
+  | "select"
+  | "checkbox"
+  | "date"
+  | "dni";
+
+export interface AttendeeField {
+  id: string;
+  presetKey: string | null;
+  label: string;
+  type: AttendeeFieldType;
+  required: boolean;
+  helpText: string | null;
+  options: string[] | null;
+  ticketTypeIds: string[] | null;
+  showOnTicket: boolean;
+  sortOrder: number;
+}
+
+export type AttendeeFieldInput = Partial<Omit<AttendeeField, "id" | "sortOrder">>;
+
+export const listAttendeeFields = (token: string, eventId: string) =>
+  authed<AttendeeField[]>(token, `/events/${eventId}/attendee-fields`);
+
+export const createAttendeeField = (token: string, eventId: string, data: AttendeeFieldInput) =>
+  authed<AttendeeField>(token, `/events/${eventId}/attendee-fields`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+
+export const updateAttendeeField = (token: string, eventId: string, id: string, data: AttendeeFieldInput) =>
+  authed<AttendeeField>(token, `/events/${eventId}/attendee-fields/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+
+export const deleteAttendeeField = (token: string, eventId: string, id: string) =>
+  authed<{ ok: true }>(token, `/events/${eventId}/attendee-fields/${id}`, { method: "DELETE" });
+
+export const reorderAttendeeFields = (token: string, eventId: string, ids: string[]) =>
+  authed<AttendeeField[]>(token, `/events/${eventId}/attendee-fields/reorder`, {
+    method: "POST",
+    body: JSON.stringify({ ids }),
+  });
+
 export type ImageKind = "event" | "cover" | "logo";
 
 /** Sube una imagen (multipart). La API la valida, la recodifica a WebP y devuelve su URL. */

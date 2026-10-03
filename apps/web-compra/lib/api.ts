@@ -47,7 +47,41 @@ export interface ShopTicketType {
   salesMessage: string | null;
 }
 
+export type AttendeeFieldType =
+  | "text"
+  | "textarea"
+  | "email"
+  | "phone"
+  | "number"
+  | "select"
+  | "checkbox"
+  | "date"
+  | "dni";
+
+export interface AttendeeFieldPublic {
+  id: string;
+  presetKey: string | null;
+  label: string;
+  type: AttendeeFieldType;
+  required: boolean;
+  helpText: string | null;
+  options: string[] | null;
+  ticketTypeIds: string[] | null;
+}
+
+/** Plaza reservada: a qué categoría pertenece y su etiqueta ("A3" o "General"). */
+export interface HeldSeat {
+  seatId: string;
+  ticketTypeId: string | null;
+  label: string;
+}
+
+/** Campos del formulario que aplican a una categoría. */
+export const fieldsFor = (fields: AttendeeFieldPublic[], ticketTypeId: string | null) =>
+  fields.filter((f) => !f.ticketTypeIds?.length || (ticketTypeId != null && f.ticketTypeIds.includes(ticketTypeId)));
+
 export interface EventDetail {
+  attendeeFields: AttendeeFieldPublic[];
   organizer: { name: string; slug: string; logoUrl: string | null; accentColor: string | null } | null;
   event: {
     id: string;

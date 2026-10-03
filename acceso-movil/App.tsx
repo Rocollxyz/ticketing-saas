@@ -187,16 +187,16 @@ function Scanner({ onBack }: { onBack: () => void }) {
     if (!m || !p) return { result: "INVALID", reason: "QR ilegible" };
     const tk = m.tickets.find((t) => t.id === p.t);
     if (!tk || p.e !== m.event.id) return { result: "INVALID", reason: "No es de este evento" };
-    if (tk.status === "VOID") return { result: "INVALID", reason: "Entrada anulada", ticket: { id: tk.id, seat: tk.seat, event: m.event.name } };
+    if (tk.status === "VOID") return { result: "INVALID", reason: "Entrada anulada", ticket: { id: tk.id, seat: tk.seat, event: m.event.name, attendee: tk.attendee } };
     const queue = await store.getQueue();
     if (queue.some((q) => q.token === token) || tk.status === "CHECKED_IN") {
-      return { result: "DUPLICATE", reason: "Ya escaneada", ticket: { id: tk.id, seat: tk.seat, event: m.event.name } };
+      return { result: "DUPLICATE", reason: "Ya escaneada", ticket: { id: tk.id, seat: tk.seat, event: m.event.name, attendee: tk.attendee } };
     }
     const item: QueuedScan = { token, seat: tk.seat, scannedAt: new Date().toISOString(), deviceId: DEVICE_ID };
     const next = [...queue, item];
     await store.setQueue(next);
     setQueueCount(next.length);
-    return { result: "OK", provisional: true, ticket: { id: tk.id, seat: tk.seat, event: m.event.name } };
+    return { result: "OK", provisional: true, ticket: { id: tk.id, seat: tk.seat, event: m.event.name, attendee: tk.attendee } };
   }
 
   async function doSync() {
@@ -264,6 +264,7 @@ function Scanner({ onBack }: { onBack: () => void }) {
             {v.result === "OK" ? (v.provisional ? "✓ VÁLIDA (offline)" : "✓ ACCESO") : v.result === "DUPLICATE" ? "✗ YA USADA" : "✗ RECHAZADA"}
           </Text>
           {v.ticket?.seat ? <Text style={styles.verdictSeat}>Asiento {v.ticket.seat}</Text> : null}
+          {v.ticket?.attendee ? <Text style={styles.verdictSeat}>{v.ticket.attendee}</Text> : null}
           {v.reason ? <Text style={styles.verdictReason}>{v.reason}</Text> : null}
           {v.previousScanAt ? (
             <Text style={styles.verdictReason}>1ª vez: {new Date(v.previousScanAt).toLocaleTimeString()}</Text>

@@ -26,7 +26,7 @@ const K = {
 export interface ScanOutcome {
   result: "OK" | "DUPLICATE" | "INVALID";
   reason?: string;
-  ticket?: { id: string; seat: string; event: string };
+  ticket?: { id: string; seat: string; event: string; attendee?: string | null };
   previousScanAt?: string;
 }
 
@@ -34,7 +34,7 @@ export interface Manifest {
   event: { id: string; name: string; status: string };
   key: string | null;
   generatedAt: string;
-  tickets: { id: string; status: string; seat: string }[];
+  tickets: { id: string; status: string; seat: string; attendee?: string | null }[];
 }
 
 export interface QueuedScan {

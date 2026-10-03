@@ -12,12 +12,13 @@ import {
   type StatusAction,
 } from "../lib/api";
 import { formatInZone } from "../lib/time";
+import AttendeeFieldsPanel from "./AttendeeFieldsPanel";
 import EventDetailsForm from "./EventDetailsForm";
 import { STATUS_LABEL } from "./EventsList";
 import SeatmapEditor from "./SeatmapEditor";
 import TicketTypesPanel from "./TicketTypesPanel";
 
-type Tab = "summary" | "details" | "tickets" | "map";
+type Tab = "summary" | "details" | "tickets" | "form" | "map";
 
 const CONFIRM: Partial<Record<StatusAction, string>> = {
   cancel:
@@ -99,6 +100,7 @@ export default function EventEditor({
     { id: "summary", label: "Resumen" },
     { id: "details", label: "Detalles" },
     { id: "tickets", label: `Entradas (${detail.ticketTypes.length})` },
+    { id: "form", label: "Formulario" },
     ...(ev.seatingMode === "RESERVED" ? [{ id: "map" as Tab, label: "Plano" }] : []),
   ];
 
@@ -256,6 +258,7 @@ export default function EventEditor({
       {tab === "tickets" && (
         <TicketTypesPanel token={token} detail={detail} disabled={cancelled} onChanged={reload} />
       )}
+      {tab === "form" && <AttendeeFieldsPanel token={token} detail={detail} disabled={cancelled} />}
       {tab === "map" && <SeatmapEditor token={token} eventId={eventId} />}
     </div>
   );

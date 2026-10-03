@@ -4,7 +4,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
 import { loadStripe } from "@stripe/stripe-js";
-import { accentOf, API_URL, type EventDetail, euros, formatDate, type ShopTicketType } from "../../../../lib/api";
+import {
+  accentOf,
+  API_URL,
+  type AttendeeFieldPublic,
+  type EventDetail,
+  euros,
+  fieldsFor,
+  formatDate,
+  type HeldSeat,
+  type ShopTicketType,
+} from "../../../../lib/api";
+import AttendeesForm from "./AttendeesForm";
+import { inputStyle } from "./styles";
 import {
   connectToEvent,
   type HeldPayload,
@@ -39,6 +51,9 @@ export default function EventClient({ slug, detail: initial }: { slug: string; d
   const [qty, setQty] = useState<Record<string, number>>({}); // general: cantidades
   const [checkout, setCheckout] = useState<CheckoutData | null>(null);
   const [hold, setHold] = useState<ActiveHold | null>(null);
+  // Plazas reservadas pendientes de rellenar el formulario de asistentes.
+  const [heldSeats, setHeldSeats] = useState<HeldSeat[] | null>(null);
+  const [buyerName, setBuyerName] = useState("");
   const [expired, setExpired] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -142,7 +157,7 @@ export default function EventClient({ slug, detail: initial }: { slug: string; d
     return null;
   }, [count, ev.maxPerOrder, general, qty, selected, detail.seats, typeById]);
 
-  const canBuy = sales.open && count > 0 && emailOk && !ruleError && !loading;
+  const canBuy = sales.open && count > 0 && emailOk && !!buyerName.trim() && !ruleError && !loading;
 
   function toggle(seatId: string, isAvailable: boolean) {
     if (!isAvailable || hold) return;
@@ -185,23 +200,61 @@ export default function EventClient({ slug, detail: initial }: { slug: string; d
       const remaining = new Date(h.expiresAt).getTime() - new Date(h.serverNow).getTime();
       held = { id: h.holdId, deadline: Date.now() + remaining };
 
-      const coRes = await fetch(`${API_URL}/shop/${slug}/checkout`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ holdId: h.holdId, buyerEmail: email.trim() }),
-      });
-      if (!coRes.ok) {
-        const body = await coRes.json().catch(() => null);
-        throw new Error(body?.message ?? "No se pudo iniciar el pago");
+      // Si el evento pide datos de los asistentes, se piden AHORA (con las plazas ya
+      // bloqueadas y el contador corriendo) y el pago llega después.
+      const seats: HeldSeat[] = h.seats ?? [];
+      if (seats.some((s) => fieldsFor(detail.attendeeFields, s.ticketTypeId).length > 0)) {
+        setHold(held);
+        setHeldSeats(seats);
+        return;
       }
-      const co = await coRes.json();
-      // Pedido gratuito: ya está emitido, no hay pago.
-      if (co.free) return router.push(`/${slug}/success?event=${ev.id}`);
-      setHold(held);
-      setCheckout({ clientSecret: co.clientSecret, publishableKey: co.publishableKey });
+      await startCheckout(held);
     } catch (e) {
       // Si la reserva se hizo pero el pago no arrancó, se suelta para no bloquear plazas.
       if (held) void releaseHold(held.id);
+      setError(e instanceof Error ? e.message : "Error inesperado");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  /**
+   * Crea el pedido y el cobro. Si viene del formulario y la API rechaza algún dato, la
+   * reserva se MANTIENE para que el comprador lo corrija (el error se lanza al llamador).
+   */
+  async function startCheckout(held: ActiveHold, attendees?: { seatId: string; values: Record<string, unknown> }[]) {
+    const coRes = await fetch(`${API_URL}/shop/${slug}/checkout`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        holdId: held.id,
+        buyerEmail: email.trim(),
+        buyerName: buyerName.trim() || undefined,
+        attendees,
+      }),
+    });
+    if (!coRes.ok) {
+      const body = await coRes.json().catch(() => null);
+      throw new Error(body?.message ?? "No se pudo iniciar el pago");
+    }
+    const co = await coRes.json();
+    // Pedido gratuito: ya está emitido, no hay pago.
+    if (co.free) {
+      router.push(`/${slug}/success?event=${ev.id}`);
+      return;
+    }
+    setHeldSeats(null);
+    setHold(held);
+    setCheckout({ clientSecret: co.clientSecret, publishableKey: co.publishableKey });
+  }
+
+  async function submitAttendees(attendees: { seatId: string; values: Record<string, unknown> }[]) {
+    if (!hold) return;
+    setLoading(true);
+    setError(null);
+    try {
+      await startCheckout(hold, attendees);
+    } catch (e) {
       setError(e instanceof Error ? e.message : "Error inesperado");
     } finally {
       setLoading(false);
@@ -222,6 +275,7 @@ export default function EventClient({ slug, detail: initial }: { slug: string; d
     setLoading(true);
     await releaseHold(hold.id);
     setHold(null);
+    setHeldSeats(null);
     setCheckout(null);
     setLoading(false);
     if (general) refresh();
@@ -230,6 +284,7 @@ export default function EventClient({ slug, detail: initial }: { slug: string; d
   /** Se acabó el tiempo: fuera el pago; el servidor libera las plazas. */
   const onExpire = useCallback(() => {
     setHold(null);
+    setHeldSeats(null);
     setCheckout(null);
     setExpired(true);
     if (general) setTimeout(refresh, 25_000); // tras el barrido del servidor
@@ -359,10 +414,23 @@ export default function EventClient({ slug, detail: initial }: { slug: string; d
         </section>
       )}
 
-      {error && <p style={{ color: "#ff6b6b" }}>{error}</p>}
+      {/* Durante el formulario de asistentes el error se muestra dentro del formulario. */}
+      {error && !heldSeats && <p style={{ color: "#ff6b6b" }}>{error}</p>}
 
       {sales.open && !hold && !expired && (
         <>
+          <label style={{ display: "block", marginBottom: 12, fontSize: 14 }}>
+            Tu nombre
+            <input
+              required
+              autoComplete="name"
+              value={buyerName}
+              onChange={(e) => setBuyerName(e.target.value)}
+              placeholder="Nombre y apellidos"
+              maxLength={120}
+              style={inputStyle}
+            />
+          </label>
           <label style={{ display: "block", marginBottom: 16, fontSize: 14 }}>
             Email (recibirás aquí tus entradas)
             <input
@@ -428,6 +496,17 @@ export default function EventClient({ slug, detail: initial }: { slug: string; d
       )}
 
       {hold && <HoldTimer deadline={hold.deadline} onExpire={onExpire} onChange={changeSelection} busy={loading} />}
+
+      {hold && heldSeats && !checkout && (
+        <AttendeesForm
+          seats={heldSeats}
+          fields={detail.attendeeFields}
+          buyer={{ name: buyerName.trim(), email: email.trim() }}
+          busy={loading}
+          error={error}
+          onSubmit={submitAttendees}
+        />
+      )}
 
       {checkout && hold && stripePromise && (
         <Elements stripe={stripePromise} options={{ clientSecret: checkout.clientSecret }}>
@@ -518,7 +597,7 @@ function HoldTimer({
       <span style={{ flex: 1, fontSize: 14, color: urgent ? "#f0c27a" : "#9fb4cc" }}>
         {urgent
           ? "¡Date prisa! Si se acaba el tiempo, tus entradas se liberarán."
-          : "Tus entradas están reservadas mientras completas el pago."}
+          : "Tus entradas están reservadas mientras completas la compra."}
       </span>
       <button
         onClick={onChange}

@@ -1,4 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post } from "@nestjs/common";
+import { AttendeeFieldsService } from "./attendee-fields.service";
 import { EventsService, type StatusAction } from "./events.service";
 import { TicketTypesService } from "./ticket-types.service";
 import { VenuesService } from "./venues.service";
@@ -62,6 +63,39 @@ export class EventsController {
   @Delete(":id/ticket-types/:ttId")
   removeTicketType(@Param("id") id: string, @Param("ttId") ttId: string) {
     return this.ticketTypes.remove(id, ttId);
+  }
+}
+
+// ─── Formulario de asistentes ──────────────────────────────────────────────
+
+@Controller("events/:id/attendee-fields")
+export class AttendeeFieldsController {
+  constructor(private readonly fields: AttendeeFieldsService) {}
+
+  @Get()
+  list(@Param("id") id: string) {
+    return this.fields.list(id);
+  }
+
+  @Post()
+  create(@Param("id") id: string, @Body() body: Record<string, unknown>) {
+    return this.fields.create(id, body ?? {});
+  }
+
+  /** Reordenar: { ids: [...] } en el orden deseado. */
+  @Post("reorder")
+  reorder(@Param("id") id: string, @Body() body: { ids?: unknown }) {
+    return this.fields.reorder(id, body?.ids);
+  }
+
+  @Patch(":fieldId")
+  update(@Param("id") id: string, @Param("fieldId") fieldId: string, @Body() body: Record<string, unknown>) {
+    return this.fields.update(id, fieldId, body ?? {});
+  }
+
+  @Delete(":fieldId")
+  remove(@Param("id") id: string, @Param("fieldId") fieldId: string) {
+    return this.fields.remove(id, fieldId);
   }
 }
 

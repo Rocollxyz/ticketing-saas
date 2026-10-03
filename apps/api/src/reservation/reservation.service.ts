@@ -3,6 +3,7 @@ import { EventEmitter2 } from "@nestjs/event-emitter";
 import { generateSigningKey, signTicketQr } from "@ticketing/crypto";
 import { schema } from "@ticketing/database";
 import { and, eq, inArray, isNull, lt, sql } from "drizzle-orm";
+import { attendeeNameOf } from "../catalog/attendee";
 import { seatTaken } from "../catalog/pricing";
 import { eventSalesState, SALES_REASON_TEXT, ticketTypeSalesState } from "../catalog/sales-rules";
 import { getStore } from "../database/tenant-context";
@@ -355,12 +356,12 @@ export class ReservationService {
       .where(eq(schema.holdSeat.holdId, h.id));
 
     const seats = await tx
-      .select({ seatId: schema.holdSeat.seatId })
+      .select({ seatId: schema.holdSeat.seatId, attendee: schema.holdSeat.attendee })
       .from(schema.holdSeat)
       .where(eq(schema.holdSeat.holdId, h.id));
 
     const issued: IssuedTicket[] = [];
-    for (const { seatId } of seats) {
+    for (const { seatId, attendee } of seats) {
       const [tk] = await tx
         .insert(schema.ticket)
         .values({
@@ -370,6 +371,8 @@ export class ReservationService {
           orderId,
           status: "ISSUED",
           qrKeyId: keyRef.id,
+          attendee,
+          attendeeName: attendeeNameOf(attendee),
         })
         .returning();
       issued.push({

@@ -8,8 +8,10 @@ import { getStore } from "../database/tenant-context";
 import { TenantDb } from "../database/tenant-db.service";
 import { PAYMENT_PROVIDER, PaymentProvider } from "../payments/payment-provider";
 import { SEATS_SOLD, type SeatsSoldEvent } from "../realtime/seat-events";
+import { validateAttendees } from "../catalog/attendee";
 import { currentPriceCents } from "../catalog/pricing";
 import { eventSalesState, SALES_REASON_TEXT } from "../catalog/sales-rules";
+import { listTx as listFieldsTx } from "../events/attendee-fields.service";
 import { ReservationService } from "../reservation/reservation.service";
 
 const CURRENCY = process.env.CURRENCY ?? "EUR";
@@ -29,7 +31,15 @@ export class CheckoutService {
    * proveedor (fuera de la transacción, es I/O de red) y persiste order PENDING +
    * payment PENDING. Devuelve el clientSecret para que el frontend cobre.
    */
-  async createCheckout(holdId: string, buyerEmail?: string) {
+  /**
+   * `buyer.attendees`: datos de cada asistente [{seatId, values:{fieldId: valor}}],
+   * validados contra el formulario del evento y guardados en cada plaza reservada.
+   */
+  async createCheckout(
+    holdId: string,
+    buyerEmail?: string,
+    buyer: { name?: string | null; attendees?: unknown } = {},
+  ) {
     const tenantId = getStore()!.tenantId;
 
     // 1) Validar hold y calcular importe desde los precios reales (lectura).
@@ -50,9 +60,24 @@ export class CheckoutService {
       if (!st.open) throw new ConflictException(SALES_REASON_TEXT[st.reason]);
 
       const seats = await tx
-        .select({ seatId: schema.holdSeat.seatId })
+        .select({ seatId: schema.holdSeat.seatId, ticketTypeId: schema.seat.ticketTypeId })
         .from(schema.holdSeat)
-        .where(eq(schema.holdSeat.holdId, h.id));
+        .innerJoin(schema.seat, eq(schema.seat.id, schema.holdSeat.seatId))
+        .where(eq(schema.holdSeat.holdId, h.id))
+        .orderBy(schema.seat.numero);
+
+      // Datos de los asistentes (si el evento tiene formulario): se validan TODOS antes
+      // de cobrar y se guardan en la plaza; se copiarán a la entrada al emitirla.
+      const fields = await listFieldsTx(tx, h.eventId);
+      if (fields.length) {
+        const answers = validateAttendees(fields, seats, buyer.attendees);
+        for (const [seatId, attendee] of answers) {
+          await tx
+            .update(schema.holdSeat)
+            .set({ attendee })
+            .where(and(eq(schema.holdSeat.holdId, h.id), eq(schema.holdSeat.seatId, seatId)));
+        }
+      }
 
       // Precio VIGENTE por asiento (anticipada/normal) vía su categoría. Queda fijado
       // aquí: es el importe del PaymentIntent aunque la anticipada caduque al pagar.
@@ -71,7 +96,8 @@ export class CheckoutService {
     });
 
     // Pedido GRATUITO (entradas a 0 €): no hay nada que cobrar → se emite ya.
-    if (amountCents === 0n) return this.fulfillFreeOrder(holdId, buyerEmail);
+    const buyerName = buyer.name?.trim() || null;
+    if (amountCents === 0n) return this.fulfillFreeOrder(holdId, buyerEmail, buyerName);
 
     const orderId = randomUUID();
 
@@ -88,7 +114,7 @@ export class CheckoutService {
 
       await tx
         .insert(schema.order)
-        .values({ id: orderId, tenantId, eventId: h.eventId, status: "PENDING", buyerEmail });
+        .values({ id: orderId, tenantId, eventId: h.eventId, status: "PENDING", buyerEmail, buyerName });
       await tx.update(schema.hold).set({ orderId }).where(eq(schema.hold.id, h.id));
       await tx.insert(schema.payment).values({
         tenantId,
@@ -111,7 +137,7 @@ export class CheckoutService {
   }
 
   /** Emite en el acto un pedido de importe 0 (mismo camino que un pago confirmado). */
-  private async fulfillFreeOrder(holdId: string, buyerEmail?: string) {
+  private async fulfillFreeOrder(holdId: string, buyerEmail?: string, buyerName?: string | null) {
     const tenantId = getStore()!.tenantId;
     const sold = await this.db.run(async (tx) => {
       const [h] = await tx
@@ -121,7 +147,7 @@ export class CheckoutService {
       if (!h) throw new ConflictException("El hold dejó de estar activo");
       const [o] = await tx
         .insert(schema.order)
-        .values({ tenantId, eventId: h.eventId, status: "PAID", buyerEmail })
+        .values({ tenantId, eventId: h.eventId, status: "PAID", buyerEmail, buyerName })
         .returning();
       await tx.update(schema.hold).set({ orderId: o.id }).where(eq(schema.hold.id, h.id));
       const { eventId, tickets } = await this.reservation.fulfillPaidOrderTx(tx, tenantId, o.id);

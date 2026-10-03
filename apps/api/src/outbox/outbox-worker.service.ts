@@ -122,6 +122,8 @@ export class OutboxWorkerService {
         isGeneral: schema.seat.isGeneral,
         categoria: schema.ticketType.name,
         precio: currentPriceCents(schema.ticketType.id),
+        attendeeName: schema.ticket.attendeeName,
+        attendee: schema.ticket.attendee,
       })
       .from(schema.ticket)
       .innerJoin(schema.seat, eq(schema.seat.id, schema.ticket.seatId))
@@ -147,6 +149,9 @@ export class OutboxWorkerService {
         doors,
         where,
         seatLabel: t.isGeneral ? null : label,
+        attendeeName: t.attendeeName,
+        // Campos marcados "imprimir en la entrada" (el nombre ya va aparte).
+        extra: (t.attendee ?? []).filter((a) => a.onTicket && a.preset !== "name"),
         categoria: t.categoria,
         precio: euros(t.precio),
         qr,
@@ -167,6 +172,11 @@ export class OutboxWorkerService {
         `${order.buyerName ? `Hola ${order.buyerName},\n\n` : ""}` +
         `Adjuntamos ${attachments.length} entrada(s) para ${ev?.name ?? "el evento"}. ` +
         `Cada PDF lleva un código QR que se validará en el acceso.\n\n` +
+        (tickets.some((t) => t.attendeeName)
+          ? `Entradas:\n${tickets
+              .map((t) => `  · ${seatLabel(t)}${t.attendeeName ? ` — ${t.attendeeName}` : ""}`)
+              .join("\n")}\n\n`
+          : "") +
         (when ? `Cuándo: ${when}${doors ? ` (puertas: ${doors})` : ""}\n` : "") +
         (where ? `Dónde: ${where}\n` : "") +
         (ev?.confirmationMessage ? `\n${ev.confirmationMessage}\n` : "") +

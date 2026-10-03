@@ -270,6 +270,22 @@ export class EventsService {
         }
       }
 
+      // Formulario de asistentes (con sus categorías traducidas a las del evento nuevo).
+      const formFields = await tx
+        .select()
+        .from(schema.attendeeField)
+        .where(eq(schema.attendeeField.eventId, eventId));
+      if (formFields.length) {
+        await tx.insert(schema.attendeeField).values(
+          formFields.map(({ id: _i, createdAt: _c, updatedAt: _u, eventId: _e, ticketTypeIds, ...f }) => ({
+            ...f,
+            tenantId,
+            eventId: copy.id,
+            ticketTypeIds: ticketTypeIds?.map((t) => typeMap.get(t)).filter((t): t is string => !!t) ?? null,
+          })),
+        );
+      }
+
       if (src.seatingMode === "GENERAL") {
         for (const tt of types) {
           const [{ n }] = await tx

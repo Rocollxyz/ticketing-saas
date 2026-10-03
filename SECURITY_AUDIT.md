@@ -227,6 +227,16 @@ HTTP en las tablas con RLS.
 - ⚠️ Pendiente: `order.refund_required` aún solo se registra (el worker lo marca como
   desconocido); falta el reembolso automático por la pasarela.
 
+### H4 — Datos personales de asistentes (RGPD) 🟠 PENDIENTE (2026-10-03)
+- Desde la migración `0011` cada entrada puede guardar datos del asistente que pida el
+  promotor (`ticket.attendee`, `hold_seat.attendee`): nombre, email, teléfono, **DNI/NIE**,
+  fecha de nacimiento… Protegidos por RLS como el resto (cada promotor solo ve los suyos).
+- **Falta para producción**: texto legal / consentimiento en el formulario (quién es el
+  responsable del tratamiento: el promotor; la plataforma es encargada), **plazo de
+  conservación** y borrado/anonimización tras el evento, y atender derechos de acceso y
+  supresión. Los datos de reservas que no llegan a pagarse (`hold_seat.attendee`) deberían
+  borrarse al liberar la reserva.
+
 ## Categoría 3 — Anotar y olvidar
 
 - **D2**: PK usa `gen_random_uuid()` (v4) pero §5 dice UUID v7. Comentado en código;

@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
-import { bigint, foreignKey, index, integer, pgTable, text, timestamp, unique, uniqueIndex, uuid } from "drizzle-orm/pg-core";
-import { holdStatus, orderStatus, paymentProvider, paymentStatus, pk, tenantId, ticketStatus, timestamps } from "./_shared";
+import { bigint, foreignKey, index, integer, jsonb, pgTable, text, timestamp, unique, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { type AttendeeAnswer, holdStatus, orderStatus, paymentProvider, paymentStatus, pk, tenantId, ticketStatus, timestamps } from "./_shared";
 import { event, seat } from "./catalog";
 import { tenant } from "./tenancy";
 
@@ -69,6 +69,9 @@ export const holdSeat = pgTable(
     seatId: uuid("seat_id").notNull(),
     // status replica el del hold para poder construir el índice único parcial.
     status: holdStatus("status").notNull().default("ACTIVE"),
+    // Datos del asistente de ESTA plaza, recogidos en el checkout (antes de pagar). Se
+    // copian a la entrada al emitirla.
+    attendee: jsonb("attendee").$type<AttendeeAnswer[]>(),
     ...timestamps,
   },
   (t) => [
@@ -124,6 +127,8 @@ export const ticket = pgTable(
     orderId: uuid("order_id").notNull(),
     status: ticketStatus("status").notNull().default("ISSUED"),
     qrKeyId: uuid("qr_key_id"), // referencia a event_signing_key; QR no en claro
+    attendeeName: text("attendee_name"), // del campo "name" (entradas nominativas, búsqueda)
+    attendee: jsonb("attendee").$type<AttendeeAnswer[]>(),
     ...timestamps,
   },
   (t) => [

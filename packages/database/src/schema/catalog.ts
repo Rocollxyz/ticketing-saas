@@ -1,5 +1,5 @@
 import { bigint, boolean, foreignKey, integer, jsonb, pgTable, text, timestamp, unique, uniqueIndex, uuid } from "drizzle-orm/pg-core";
-import { eventStatus, eventVisibility, pk, seatingMode, softDelete, tenantId, timestamps } from "./_shared";
+import { attendeeFieldType, eventStatus, eventVisibility, pk, seatingMode, softDelete, tenantId, timestamps } from "./_shared";
 import { tenant } from "./tenancy";
 
 /**
@@ -111,6 +111,38 @@ export const ticketType = pgTable(
       columns: [t.tenantId, t.eventId],
       foreignColumns: [event.tenantId, event.id],
       name: "ticket_type_event_fk",
+    }),
+  ],
+);
+
+/**
+ * Formulario de asistentes del evento: qué datos se piden por CADA entrada (nombre,
+ * DNI, campos propios…). `presetKey` marca los campos estándar (p.ej. "name" alimenta
+ * el nombre del asistente que se imprime en la entrada y ve el portero).
+ */
+export const attendeeField = pgTable(
+  "attendee_field",
+  {
+    id: pk(),
+    tenantId: tenantId().references(() => tenant.id, { onDelete: "restrict" }),
+    eventId: uuid("event_id").notNull(),
+    presetKey: text("preset_key"), // name | email | phone | company | job | dni | birthdate | null
+    label: text("label").notNull(),
+    type: attendeeFieldType("type").notNull(),
+    required: boolean("required").notNull().default(false),
+    helpText: text("help_text"),
+    options: jsonb("options").$type<string[]>(), // solo para `select`
+    // null = todas las categorías; si no, solo estas (p.ej. DNI solo en «VIP»).
+    ticketTypeIds: jsonb("ticket_type_ids").$type<string[]>(),
+    showOnTicket: boolean("show_on_ticket").notNull().default(false),
+    sortOrder: integer("sort_order").notNull().default(0),
+    ...timestamps,
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.tenantId, t.eventId],
+      foreignColumns: [event.tenantId, event.id],
+      name: "attendee_field_event_fk",
     }),
   ],
 );

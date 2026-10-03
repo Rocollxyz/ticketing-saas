@@ -44,6 +44,30 @@ export const eventVisibility = pgEnum("event_visibility", ["PUBLIC", "UNLISTED"]
 // (internamente cada plaza es un `seat` is_general, para reutilizar la anti-sobreventa).
 export const seatingMode = pgEnum("seating_mode", ["RESERVED", "GENERAL"]);
 
+// Tipos de campo del formulario de asistentes. `dni` = DNI/NIE español (con letra de control).
+export const attendeeFieldType = pgEnum("attendee_field_type", [
+  "text",
+  "textarea",
+  "email",
+  "phone",
+  "number",
+  "select",
+  "checkbox",
+  "date",
+  "dni",
+]);
+
+/** Respuesta guardada de un asistente: copia FIJA de la etiqueta en el momento de comprar. */
+export interface AttendeeAnswer {
+  fieldId: string;
+  label: string;
+  value: string;
+  /** Se imprime en la entrada (PDF/taquilla). */
+  onTicket?: boolean;
+  /** Campo estándar del que procede (p.ej. "name"). */
+  preset?: string;
+}
+
 export const holdStatus = pgEnum("hold_status", [
   "ACTIVE",
   "CONFIRMED",

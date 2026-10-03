@@ -13,7 +13,8 @@ export type ScanResult = "OK" | "DUPLICATE" | "INVALID";
 export interface ScanOutcome {
   result: ScanResult;
   reason?: string;
-  ticket?: { id: string; seat: string; event: string };
+  /** `attendee`: titular, si la entrada es nominativa (para cotejar con el DNI). */
+  ticket?: { id: string; seat: string; event: string; attendee?: string | null };
   previousScanAt?: string;
 }
 
@@ -78,7 +79,12 @@ export class AccessService {
     }
 
     const [tk] = await tx
-      .select({ id: schema.ticket.id, status: schema.ticket.status, seatId: schema.ticket.seatId })
+      .select({
+        id: schema.ticket.id,
+        status: schema.ticket.status,
+        seatId: schema.ticket.seatId,
+        attendeeName: schema.ticket.attendeeName,
+      })
       .from(schema.ticket)
       .where(and(eq(schema.ticket.id, payload.t), eq(schema.ticket.eventId, eventId)));
     if (!tk) return { result: "INVALID", reason: "Entrada inexistente" };
@@ -96,7 +102,7 @@ export class AccessService {
         .leftJoin(schema.ticketType, eq(schema.ticketType.id, schema.seat.ticketTypeId))
         .innerJoin(schema.event, eq(schema.event.id, eventId))
         .where(eq(schema.seat.id, tk.seatId));
-      return { id: tk.id, seat: row ? seatLabel(row) : "?", event: row?.event ?? "" };
+      return { id: tk.id, seat: row ? seatLabel(row) : "?", event: row?.event ?? "", attendee: tk.attendeeName };
     };
 
     const record = (result: ScanResult) =>
@@ -164,6 +170,7 @@ export class AccessService {
           numero: schema.seat.numero,
           isGeneral: schema.seat.isGeneral,
           categoria: schema.ticketType.name,
+          attendeeName: schema.ticket.attendeeName,
         })
         .from(schema.ticket)
         .innerJoin(schema.seat, eq(schema.seat.id, schema.ticket.seatId))
@@ -177,7 +184,7 @@ export class AccessService {
         // por evento + clave derivada por dispositivo.
         key: key?.k ?? null,
         generatedAt: new Date().toISOString(),
-        tickets: tickets.map((t) => ({ id: t.id, status: t.status, seat: seatLabel(t) })),
+        tickets: tickets.map((t) => ({ id: t.id, status: t.status, seat: seatLabel(t), attendee: t.attendeeName })),
       };
     });
   }
