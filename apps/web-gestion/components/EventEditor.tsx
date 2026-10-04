@@ -7,6 +7,7 @@ import {
   type EventDetail,
   euros,
   getEvent,
+  refundAllTickets,
   SHOP_URL,
   setEventStatus,
   type StatusAction,
@@ -25,7 +26,7 @@ type Tab = "summary" | "details" | "tickets" | "form" | "map" | "coupons" | "att
 const CONFIRM: Partial<Record<StatusAction, string>> = {
   cancel:
     "¿Cancelar el evento? Es definitivo: deja de venderse y no se puede editar. " +
-    "Los reembolsos a quien ya compró se gestionan aparte.",
+    "Después podrás devolver el dinero a todos los compradores desde el resumen.",
   close: "¿Cerrar la venta? No se venderán más entradas online (puedes reabrirla).",
   unpublish: "¿Volver a borrador? El evento dejará de verse en la tienda.",
 };
@@ -82,6 +83,32 @@ export default function EventEditor({
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error");
       if (e instanceof ApiError) setProblems(e.problems);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function refundAll() {
+    if (
+      !window.confirm(
+        `Se anularán las ${stats.sold} entradas vivas y se devolverá a cada comprador lo que pagó: ` +
+          "las compras online, automáticamente a su tarjeta; las de taquilla quedarán pendientes de devolver en mano. ¿Seguir?",
+      )
+    )
+      return;
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await refundAllTickets(token, eventId);
+      setNotice(
+        `${r.voided} entradas anuladas. Devolución de ${euros(r.amountCents)}: ` +
+          `${r.online} pedido(s) online en curso` +
+          (r.manual ? `, ${r.manual} de taquilla por devolver en mano (márcalos en «Asistentes»)` : "") +
+          ".",
+      );
+      await reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Error");
     } finally {
       setBusy(false);
     }
@@ -175,6 +202,14 @@ export default function EventEditor({
       {cancelled && (
         <div className="notice warn" style={{ marginTop: 12 }}>
           Evento cancelado: ya no se vende ni se puede editar. Puedes duplicarlo para crear uno nuevo.
+          {stats.sold > 0 && (
+            <div className="row" style={{ marginTop: 8 }}>
+              <span>Quedan {stats.sold} entradas vendidas.</span>
+              <button className="btn danger" disabled={busy} onClick={refundAll}>
+                Anular todas y devolver el dinero
+              </button>
+            </div>
+          )}
         </div>
       )}
 

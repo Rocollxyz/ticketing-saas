@@ -36,9 +36,9 @@ npm run dev                   # API :3000 + webs :3001 compra, :3002 gestión, :
 | 2 | Gestión de entradas en la consola (pestaña «Asistentes»): listar, buscar, editar asistente, reenviar, anular (liberando la plaza), invitaciones, exportar CSV | ✅ Hecho |
 | 3 | **Emails reales** | Más adelante: **servicio propio en el servidor** (decidido 2026-10-04; nada de Resend/Brevo/SES). Se hará con el paso a producción |
 | 4 | Cupones / códigos de descuento (pestaña «Descuentos»; % o € por entrada, por evento/categorías o para todos los eventos, usos máximos y fechas) | ✅ Hecho |
-| 5 | ⏭️ **Siguiente** — **Reembolsos y cancelaciones**: devolver el dinero al anular (hoy anular ya libera la plaza pero no reembolsa) + reembolso automático de `order.refund_required` | Pendiente |
-| 6 | **Redsys + Bizum** (pasarela española) | Pendiente |
-| 7 | **IVA y facturas** | Pendiente |
+| 5 | Reembolsos y cancelaciones: anular con devolución (online automática por Stripe; taquilla «por devolver en mano»), devolución en bloque al cancelar un evento, cobros sin plaza devueltos solos, email al comprador. Guarda lo pagado por cada entrada | ✅ Hecho |
+| 6 | **Redsys + Bizum** (pasarela española) — pedir ya al banco el TPV virtual | Pendiente |
+| 7 | ⏭️ **Siguiente** — **IVA y facturas** (consultar a la gestoría: tipo de factura y Verifactu) | Pendiente |
 
 Después de producción (por importancia): emails en HTML y plantillas de entrada
 personalizables · «Añadir al calendario» (.ics) y recordatorios · Apple/Google Wallet ·
@@ -52,14 +52,19 @@ directorio de promotores en la portada `/` (hoy es una demo fija).
 > Limitaciones de lo que ya funciona. Se apuntan aquí en cuanto aparecen y se quitan al
 > resolverlas. **Antes del paso a producción se repasa la lista y se resuelve lo que quede.**
 
-- **Precio por entrada** no se guarda en `ticket` (el CSV no lo trae; el email usa el precio
-  vigente). Hará falta para IVA/facturas (#7).
+- **Entradas vendidas antes del 2026-10-04** no tienen guardado lo pagado (`price_cents`
+  null): al devolverlas se propone la parte proporcional del pedido.
+- **Devoluciones de Stripe «pendientes»** se dan por hechas: no se sigue por webhook el raro
+  caso de que fallen después (`refund.failed`).
+- **Devolución de una venta con datáfono** (TPV) se trata como «en mano»: falta devolver por
+  el propio datáfono cuando haya uno real.
+- No hay «devolver el pedido entero» desde una entrada: se anula entrada a entrada (o todo
+  el evento si se cancela).
 - Invitaciones en numerado: se asignan los primeros asientos libres; no se pueden elegir.
 - **Taquilla** no pide los datos de asistentes al vender en mostrador.
 - Plano de la tienda: un asiento vendido antes de abrir la página sale «ocupado» en vez de
   «vendido».
 - **Imágenes**: las sustituidas no se borran (huérfanas); falta adaptador S3/R2 para producción.
-- `order.refund_required` (cobro sin plaza) solo se registra; la devolución es manual.
 
 ### Seguridad y RGPD (ver SECURITY_AUDIT.md)
 - 🟠 **H4 RGPD**: texto legal y consentimiento en el formulario, plazo de conservación y
@@ -102,7 +107,7 @@ directorio de promotores en la portada `/` (hoy es una demo fija).
 ## Coordinación entre líneas
 - `main` nunca recibe trabajo a medias de Darrian/Raquel; se integrarán cuando estén
   maduras (decisión aparte).
-- La BD es compartida y ya tiene la migración **0012** (cupones; la 0011 son los datos de
-  asistentes). Para que
+- La BD es compartida y ya tiene la migración **0013** (reembolsos; 0012 cupones, 0011
+  datos de asistentes). Para que
   Darrian/Raquel tengan el código al día: en su ventana, «trae los cambios de main»
   (`git merge main`).

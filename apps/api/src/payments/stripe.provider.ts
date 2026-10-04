@@ -5,6 +5,7 @@ import {
   CreateIntentResult,
   PaymentProvider,
   PaymentWebhookEvent,
+  RefundResult,
 } from "./payment-provider";
 
 /**
@@ -57,6 +58,15 @@ export class StripeProvider implements PaymentProvider {
       if (outcome) return outcome;
       throw e;
     }
+  }
+
+  async refund(providerRef: string, amountCents: number, idempotencyKey: string): Promise<RefundResult> {
+    const r = await this.stripe.refunds.create(
+      { payment_intent: providerRef, amount: amountCents, reason: "requested_by_customer" },
+      { idempotencyKey: `refund_${idempotencyKey}` },
+    );
+    const status = r.status === "succeeded" ? "succeeded" : r.status === "failed" || r.status === "canceled" ? "failed" : "pending";
+    return { providerRef: r.id, status };
   }
 
   verifyAndParse(

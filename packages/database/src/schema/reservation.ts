@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import { bigint, foreignKey, index, integer, jsonb, pgTable, text, timestamp, unique, uniqueIndex, uuid } from "drizzle-orm/pg-core";
-import { type AttendeeAnswer, holdStatus, orderStatus, paymentProvider, paymentStatus, pk, tenantId, ticketStatus, timestamps } from "./_shared";
+import { type AttendeeAnswer, holdStatus, refundStatus, orderStatus, paymentProvider, paymentStatus, pk, tenantId, ticketStatus, timestamps } from "./_shared";
 import { coupon, event, seat } from "./catalog";
 import { tenant } from "./tenancy";
 
@@ -79,6 +79,9 @@ export const holdSeat = pgTable(
     // Datos del asistente de ESTA plaza, recogidos en el checkout (antes de pagar). Se
     // copian a la entrada al emitirla.
     attendee: jsonb("attendee").$type<AttendeeAnswer[]>(),
+    // Lo que se cobra por ESTA plaza (precio vigente menos su parte del descuento),
+    // fijado al iniciar el pago. Se copia a la entrada al emitirla.
+    priceCents: bigint("price_cents", { mode: "number" }),
     ...timestamps,
   },
   (t) => [
@@ -136,6 +139,8 @@ export const ticket = pgTable(
     qrKeyId: uuid("qr_key_id"), // referencia a event_signing_key; QR no en claro
     attendeeName: text("attendee_name"), // del campo "name" (entradas nominativas, búsqueda)
     attendee: jsonb("attendee").$type<AttendeeAnswer[]>(),
+    // Pagado por esta entrada, ya con descuento. null = emitida antes de guardarlo.
+    priceCents: bigint("price_cents", { mode: "number" }),
     ...timestamps,
   },
   (t) => [
@@ -161,6 +166,37 @@ export const ticket = pgTable(
       columns: [t.tenantId, t.orderId],
       foreignColumns: [order.tenantId, order.id],
       name: "ticket_order_fk",
+    }),
+  ],
+);
+
+/**
+ * Devolución de dinero de un pedido (total o de algunas entradas). Se crea en la misma
+ * transacción que anula las entradas; el outbox la envía a la pasarela con su id como
+ * clave de idempotencia (un reintento nunca devuelve dos veces).
+ */
+export const refund = pgTable(
+  "refund",
+  {
+    id: pk(),
+    tenantId: tenantId().references(() => tenant.id, { onDelete: "restrict" }),
+    orderId: uuid("order_id").notNull(),
+    paymentId: uuid("payment_id"),
+    amountCents: bigint("amount_cents", { mode: "number" }).notNull(),
+    status: refundStatus("status").notNull(),
+    ticketIds: jsonb("ticket_ids").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+    reason: text("reason"),
+    providerRef: text("provider_ref"), // id de la devolución en la pasarela
+    error: text("error"),
+    createdBy: uuid("created_by"), // null = sistema (p.ej. cobro sin plaza)
+    ...timestamps,
+  },
+  (t) => [
+    index("refund_order_idx").on(t.orderId),
+    foreignKey({
+      columns: [t.tenantId, t.orderId],
+      foreignColumns: [order.tenantId, order.id],
+      name: "refund_order_fk",
     }),
   ],
 );

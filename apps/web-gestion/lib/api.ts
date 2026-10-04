@@ -310,6 +310,18 @@ export interface IssuedTicketRow {
   channel: TicketChannel;
   checkedInAt: string | null;
   couponCode: string | null;
+  /** Pagado por esta entrada (con descuento). null = vendida antes de guardarlo. */
+  priceCents: number | null;
+  refund: TicketRefund | null;
+}
+
+export type RefundStatus = "PENDING" | "MANUAL" | "SUCCEEDED" | "FAILED";
+
+export interface TicketRefund {
+  id: string;
+  status: RefundStatus;
+  amountCents: number;
+  error: string | null;
 }
 
 export interface TicketFilters {
@@ -352,11 +364,41 @@ export const resendTicket = (token: string, eventId: string, ticketId: string, d
     body: JSON.stringify(data),
   });
 
-export const voidTicket = (token: string, eventId: string, ticketId: string, data: { release: boolean; reason?: string }) =>
-  authed<{ ok: true; released: boolean }>(token, `/events/${eventId}/tickets/${ticketId}/void`, {
+export const voidTicket = (
+  token: string,
+  eventId: string,
+  ticketId: string,
+  data: { release: boolean; reason?: string; refund?: boolean; refundCents?: number },
+) =>
+  authed<{ ok: true; released: boolean; refund: { status: RefundStatus; amountCents: number } | null }>(
+    token,
+    `/events/${eventId}/tickets/${ticketId}/void`,
+    { method: "POST", body: JSON.stringify(data) },
+  );
+
+export const refundVoidedTicket = (
+  token: string,
+  eventId: string,
+  ticketId: string,
+  data: { refundCents?: number; reason?: string },
+) =>
+  authed<{ ok: true; status: RefundStatus; amountCents: number }>(token, `/events/${eventId}/tickets/${ticketId}/refund`, {
     method: "POST",
     body: JSON.stringify(data),
   });
+
+export const retryRefund = (token: string, eventId: string, refundId: string) =>
+  authed<{ ok: true }>(token, `/events/${eventId}/tickets/refunds/${refundId}/retry`, { method: "POST" });
+
+export const markRefundDone = (token: string, eventId: string, refundId: string) =>
+  authed<{ ok: true }>(token, `/events/${eventId}/tickets/refunds/${refundId}/done`, { method: "POST" });
+
+export const refundAllTickets = (token: string, eventId: string) =>
+  authed<{ voided: number; orders: number; online: number; manual: number; amountCents: number }>(
+    token,
+    `/events/${eventId}/tickets/refund-all`,
+    { method: "POST" },
+  );
 
 export const issueManualTickets = (
   token: string,

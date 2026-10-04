@@ -2,12 +2,13 @@ import { Inject, Injectable, Logger } from "@nestjs/common";
 import { Interval } from "@nestjs/schedule";
 import { signTicketQr } from "@ticketing/crypto";
 import { schema } from "@ticketing/database";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { formatInZone } from "../catalog/format";
 import { currentPriceCents } from "../catalog/pricing";
 import { seatLabel } from "../catalog/seat-label";
 import { AdminDb } from "../database/admin-db.service";
 import { EMAIL_PROVIDER, type EmailAttachment, type EmailProvider } from "./email-provider";
+import { RefundProcessorService } from "./refund-processor.service";
 import { TicketPdfService } from "./ticket-pdf.service";
 
 const POLL_MS = 5_000;
@@ -40,6 +41,7 @@ export class OutboxWorkerService {
   constructor(
     private readonly admin: AdminDb,
     private readonly pdf: TicketPdfService,
+    private readonly refunds: RefundProcessorService,
     @Inject(EMAIL_PROVIDER) private readonly email: EmailProvider,
   ) {}
 
@@ -59,6 +61,10 @@ export class OutboxWorkerService {
         try {
           if (row.type === "ticket.issued") {
             await this.handleTicketIssued(row.tenantId, row.payload as TicketIssuedPayload);
+          } else if (row.type === "refund.process") {
+            await this.refunds.process((row.payload as { refundId: string }).refundId);
+          } else if (row.type === "order.refund_required") {
+            await this.refunds.refundRequired(row.tenantId, (row.payload as { orderId: string }).orderId);
           } else {
             this.logger.warn(`tipo de outbox desconocido: ${row.type} (id ${row.id}) — se omite`);
           }
@@ -124,7 +130,8 @@ export class OutboxWorkerService {
         numero: schema.seat.numero,
         isGeneral: schema.seat.isGeneral,
         categoria: schema.ticketType.name,
-        precio: currentPriceCents(schema.ticketType.id),
+        // Lo pagado por la entrada (con descuento); las antiguas, el precio vigente.
+        precio: sql<number | null>`coalesce(${schema.ticket.priceCents}, ${currentPriceCents(schema.ticketType.id)})`.mapWith(Number),
         attendeeName: schema.ticket.attendeeName,
         attendee: schema.ticket.attendee,
       })

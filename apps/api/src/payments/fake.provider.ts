@@ -4,6 +4,7 @@ import {
   CreateIntentResult,
   PaymentProvider,
   PaymentWebhookEvent,
+  RefundResult,
 } from "./payment-provider";
 
 /**
@@ -28,6 +29,11 @@ export class FakeProvider implements PaymentProvider {
   /** En dev el cobro falso nunca está a medias: se puede cancelar siempre. */
   async cancelIntent(): Promise<"canceled"> {
     return "canceled";
+  }
+
+  /** En dev la devolución siempre sale bien al momento. */
+  async refund(_providerRef: string, _amountCents: number, idempotencyKey: string): Promise<RefundResult> {
+    return { providerRef: `fake_re_${idempotencyKey}`, status: "succeeded" };
   }
 
   verifyAndParse(

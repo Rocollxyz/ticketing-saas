@@ -18,14 +18,21 @@ type EventRow = typeof schema.event.$inferSelect;
 
 export type StatusAction = "publish" | "unpublish" | "close" | "reopen" | "cancel";
 
-/** Entradas vendidas (no anuladas) / recaudación / aforo por evento, como subconsultas. */
+/**
+ * Entradas vendidas (no anuladas) / recaudación neta (cobros menos devoluciones hechas)
+ * / aforo por evento, como subconsultas.
+ */
 const soldSql = sql<number>`(
   select count(*) from ticket t where t.event_id = ${qualified(schema.event.id)} and t.status <> 'VOID'
 )`.mapWith(Number);
 const revenueSql = sql<number>`(
   select coalesce(sum(p.amount_cents), 0) from payment p
   join "order" o on o.id = p.order_id
-  where o.event_id = ${qualified(schema.event.id)} and p.status = 'CAPTURED'
+  where o.event_id = ${qualified(schema.event.id)} and p.status in ('CAPTURED','REFUNDED')
+) - (
+  select coalesce(sum(r.amount_cents), 0) from refund r
+  join "order" o on o.id = r.order_id
+  where o.event_id = ${qualified(schema.event.id)} and r.status = 'SUCCEEDED'
 )`.mapWith(Number);
 const capacitySql = sql<number>`(
   select count(*) from seat s where s.event_id = ${qualified(schema.event.id)} and s.ticket_type_id is not null

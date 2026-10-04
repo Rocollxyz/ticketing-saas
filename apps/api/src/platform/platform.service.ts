@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable } from "@nestjs/common";
 import { schema } from "@ticketing/database";
 import * as bcrypt from "bcryptjs";
-import { count, eq, sum } from "drizzle-orm";
+import { count, eq, inArray, sum } from "drizzle-orm";
 import { AdminDb } from "../database/admin-db.service";
 import { getStore } from "../database/tenant-context";
 
@@ -53,12 +53,19 @@ export class PlatformService {
     const revenue = await this.admin.db
       .select({ tenantId: schema.payment.tenantId, s: sum(schema.payment.amountCents) })
       .from(schema.payment)
-      .where(eq(schema.payment.status, "CAPTURED"))
+      .where(inArray(schema.payment.status, ["CAPTURED", "REFUNDED"]))
       .groupBy(schema.payment.tenantId);
+    // Recaudación neta: menos lo ya devuelto.
+    const refunded = await this.admin.db
+      .select({ tenantId: schema.refund.tenantId, s: sum(schema.refund.amountCents) })
+      .from(schema.refund)
+      .where(eq(schema.refund.status, "SUCCEEDED"))
+      .groupBy(schema.refund.tenantId);
 
     const evMap = new Map(events.map((r) => [r.tenantId, Number(r.c)]));
     const tkMap = new Map(tickets.map((r) => [r.tenantId, Number(r.c)]));
-    const revMap = new Map(revenue.map((r) => [r.tenantId, Number(r.s ?? 0)]));
+    const refMap = new Map(refunded.map((r) => [r.tenantId, Number(r.s ?? 0)]));
+    const revMap = new Map(revenue.map((r) => [r.tenantId, Number(r.s ?? 0) - (refMap.get(r.tenantId) ?? 0)]));
 
     return tenants.map((t) => ({
       id: t.id,

@@ -10,6 +10,7 @@ export type CouponRow = typeof schema.coupon.$inferSelect;
 export interface PricedLine {
   ticketTypeId: string;
   amountCents: number;
+  seatId?: string;
 }
 
 /** Normaliza lo que teclea el comprador o el promotor: sin espacios y en mayúsculas. */
@@ -42,16 +43,20 @@ export async function hasActiveCouponTx(tx: Tx, eventId: string): Promise<boolea
   return !!c;
 }
 
-/** Descuento por entrada elegible. Nunca deja una entrada por debajo de 0. */
-export function couponDiscount(c: CouponRow, lines: PricedLine[]): number {
-  let total = 0;
-  for (const l of lines) {
-    if (c.ticketTypeIds?.length && !c.ticketTypeIds.includes(l.ticketTypeId)) continue;
+/**
+ * Descuento de CADA línea (mismo orden que `lines`): por entrada elegible, nunca por
+ * debajo de 0. Se guarda por plaza para saber lo pagado por cada entrada (reembolsos).
+ */
+export function couponLineDiscounts(c: CouponRow, lines: PricedLine[]): number[] {
+  return lines.map((l) => {
+    if (c.ticketTypeIds?.length && !c.ticketTypeIds.includes(l.ticketTypeId)) return 0;
     const off = c.kind === "PERCENT" ? Math.round((l.amountCents * c.value) / 100) : c.value;
-    total += Math.min(off, l.amountCents);
-  }
-  return total;
+    return Math.min(off, l.amountCents);
+  });
 }
+
+export const couponDiscount = (c: CouponRow, lines: PricedLine[]) =>
+  couponLineDiscounts(c, lines).reduce((a, b) => a + b, 0);
 
 /**
  * Busca el cupón y comprueba que vale para este pedido. Devuelve el cupón y el
@@ -64,7 +69,7 @@ export async function resolveCouponTx(
   eventId: string,
   lines: PricedLine[],
   lock = false,
-): Promise<{ coupon: CouponRow; discountCents: number }> {
+): Promise<{ coupon: CouponRow; discountCents: number; lineDiscounts: number[] }> {
   const code = normalizeCode(rawCode);
   const q = tx.select().from(schema.coupon).where(eq(schema.coupon.code, code));
   const [c] = lock ? await q.for("update") : await q;
@@ -76,7 +81,8 @@ export async function resolveCouponTx(
   if (c.maxUses != null && (await couponUsesTx(tx, c.id)) >= c.maxUses) {
     throw new BadRequestException("Este código ya se ha agotado");
   }
-  const discountCents = couponDiscount(c, lines);
+  const lineDiscounts = couponLineDiscounts(c, lines);
+  const discountCents = lineDiscounts.reduce((a, b) => a + b, 0);
   if (discountCents <= 0) throw new BadRequestException("Este código no se aplica a las entradas elegidas");
-  return { coupon: c, discountCents };
+  return { coupon: c, discountCents, lineDiscounts };
 }

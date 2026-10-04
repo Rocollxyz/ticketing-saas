@@ -370,12 +370,16 @@ export class ReservationService {
       .where(eq(schema.holdSeat.holdId, h.id));
 
     const seats = await tx
-      .select({ seatId: schema.holdSeat.seatId, attendee: schema.holdSeat.attendee })
+      .select({
+        seatId: schema.holdSeat.seatId,
+        attendee: schema.holdSeat.attendee,
+        priceCents: schema.holdSeat.priceCents,
+      })
       .from(schema.holdSeat)
       .where(eq(schema.holdSeat.holdId, h.id));
 
     const issued: IssuedTicket[] = [];
-    for (const { seatId, attendee } of seats) {
+    for (const { seatId, attendee, priceCents } of seats) {
       const [tk] = await tx
         .insert(schema.ticket)
         .values({
@@ -387,6 +391,7 @@ export class ReservationService {
           qrKeyId: keyRef.id,
           attendee,
           attendeeName: attendeeNameOf(attendee),
+          priceCents,
         })
         .returning();
       issued.push({

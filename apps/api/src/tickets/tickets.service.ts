@@ -17,14 +17,13 @@ import { getStore } from "../database/tenant-context";
 import { TenantDb } from "../database/tenant-db.service";
 import { SEATS_RELEASED, SEATS_SOLD, type SeatsReleasedEvent, type SeatsSoldEvent } from "../realtime/seat-events";
 import { ReservationService } from "../reservation/reservation.service";
+import { createRefundTx, INVITATION_REF, ticketsPaidTx } from "./refunds";
 
 type Tx = Parameters<Parameters<TenantDb["run"]>[0]>[0];
 type TicketStatus = "ISSUED" | "CHECKED_IN" | "VOID";
 
 const PAGE = 100;
 const MAX_MANUAL = 50;
-/** Marca del pago de las entradas añadidas a mano (para distinguir el canal). */
-const INVITATION_REF = "INVITACION";
 
 export type Channel = "online" | "taquilla" | "invitacion";
 const CHANNEL_LABEL: Record<Channel, string> = { online: "Online", taquilla: "Taquilla", invitacion: "Invitación" };
@@ -39,6 +38,20 @@ const channelSql = sql<Channel>`(
   from payment p where p.order_id = ${qualified(schema.ticket.orderId)} order by p.created_at limit 1
 )`;
 const channelOf = (c: Channel | null): Channel => c ?? "online";
+
+export interface TicketRefund {
+  id: string;
+  status: "PENDING" | "MANUAL" | "SUCCEEDED" | "FAILED";
+  amountCents: number;
+  error: string | null;
+}
+
+/** Última devolución que incluye la entrada. */
+const refundSql = sql<TicketRefund | null>`(
+  select json_build_object('id', r.id, 'status', r.status, 'amountCents', r.amount_cents, 'error', r.error)
+  from refund r where jsonb_exists(r.ticket_ids, ${qualified(schema.ticket.id)}::text)
+  order by r.created_at desc limit 1
+)`;
 
 /** Primera validación correcta en el acceso. */
 const checkedInAtSql = sql<Date | null>`(
@@ -129,6 +142,8 @@ export class TicketsService {
         categoria: schema.ticketType.name,
         channel: channelSql,
         checkedInAt: checkedInAtSql,
+        priceCents: schema.ticket.priceCents,
+        refund: refundSql,
         couponCode: sql<string | null>`(select c.code from coupon c where c.id = ${qualified(schema.order.couponId)})`,
       })
       .from(schema.ticket)
@@ -212,11 +227,13 @@ export class TicketsService {
 
   /**
    * Anula una entrada: deja de valer en el acceso (también offline, al refrescar el
-   * paquete). Con `release` la plaza vuelve a estar a la venta. NO devuelve el dinero.
+   * paquete). Con `release` la plaza vuelve a estar a la venta. Con `refund` devuelve
+   * el dinero: `refundCents` o, si no se indica, lo pagado por la entrada.
    */
   async void(eventId: string, ticketId: string, body: Record<string, unknown>) {
     this.assertPromoter();
     const release = body.release !== false;
+    const refundCents = input.int(body.refundCents, "Importe a devolver", 0, 100_000_000) ?? null;
     const result = await this.db.run(async (tx) => {
       const tk = await this.loadTicketTx(tx, eventId, ticketId, true);
       if (tk.status === "VOID") throw new ConflictException("La entrada ya está anulada");
@@ -237,19 +254,158 @@ export class TicketsService {
             ),
           );
       }
+      const reason = input.text(body.reason, "Motivo", 300) ?? null;
+      const refund =
+        body.refund === true
+          ? await createRefundTx(tx, {
+              tenantId: getStore()!.tenantId,
+              orderId: tk.orderId,
+              ticketIds: [ticketId],
+              amountCents: refundCents ?? (await ticketsPaidTx(tx, tk.orderId, [ticketId])).paidCents,
+              reason,
+              createdBy: getStore()!.userId,
+            })
+          : null;
       await this.auditTx(tx, "ticket.voided", {
         ticketId,
         orderId: tk.orderId,
         previousStatus: tk.status,
         released: release,
-        reason: input.text(body.reason, "Motivo", 300) ?? null,
+        reason,
+        refundId: refund?.id ?? null,
+        refundCents: refund?.amountCents ?? 0,
       });
-      return { seatId: tk.seatId };
+      return { seatId: tk.seatId, refund };
     });
     if (release) {
       this.emitter.emit(SEATS_RELEASED, { eventId, seatIds: [result.seatId] } satisfies SeatsReleasedEvent);
     }
-    return { ok: true as const, released: release };
+    return {
+      ok: true as const,
+      released: release,
+      refund: result.refund && { status: result.refund.status, amountCents: result.refund.amountCents },
+    };
+  }
+
+  /**
+   * Evento CANCELADO: anula todas las entradas vivas y devuelve a cada pedido lo pagado
+   * (online, automático; taquilla, queda «por devolver en mano»). Repetible: lo ya
+   * anulado no se vuelve a tocar.
+   */
+  async refundAll(eventId: string) {
+    this.assertPromoter();
+    const store = getStore()!;
+    return this.db.run(async (tx) => {
+      const ev = await this.loadEventTx(tx, eventId);
+      if (ev.status !== "CANCELLED") {
+        throw new ConflictException("Solo se devuelve todo de una vez en un evento cancelado");
+      }
+      const live = await tx
+        .update(schema.ticket)
+        .set({ status: "VOID", updatedAt: new Date() })
+        .where(and(eq(schema.ticket.eventId, eventId), sql`${schema.ticket.status} <> 'VOID'`))
+        .returning({ id: schema.ticket.id, orderId: schema.ticket.orderId });
+      const byOrder = new Map<string, string[]>();
+      for (const t of live) byOrder.set(t.orderId, [...(byOrder.get(t.orderId) ?? []), t.id]);
+
+      let online = 0;
+      let manual = 0;
+      let cents = 0;
+      for (const [orderId, ticketIds] of byOrder) {
+        const { paidCents } = await ticketsPaidTx(tx, orderId, ticketIds);
+        const r = await createRefundTx(tx, {
+          tenantId: store.tenantId,
+          orderId,
+          ticketIds,
+          amountCents: paidCents,
+          reason: "Evento cancelado",
+          createdBy: store.userId,
+        });
+        if (!r) continue;
+        cents += r.amountCents;
+        if (r.status === "MANUAL") manual++;
+        else online++;
+      }
+      await this.auditTx(tx, "event.refund_all", { eventId, tickets: live.length, online, manual, cents });
+      return { voided: live.length, orders: byOrder.size, online, manual, amountCents: cents };
+    });
+  }
+
+  /**
+   * Devolver el dinero de una entrada YA anulada (p.ej. se anuló sin devolver y luego se
+   * decide reembolsar). Una entrada solo se devuelve una vez.
+   */
+  async refundVoided(eventId: string, ticketId: string, body: Record<string, unknown>) {
+    this.assertPromoter();
+    const store = getStore()!;
+    const refundCents = input.int(body.refundCents, "Importe a devolver", 1, 100_000_000) ?? null;
+    return this.db.run(async (tx) => {
+      const tk = await this.loadTicketTx(tx, eventId, ticketId, true);
+      if (tk.status !== "VOID") throw new ConflictException("Anula la entrada para devolver su importe");
+      const [prev] = await tx
+        .select({ id: schema.refund.id })
+        .from(schema.refund)
+        .where(and(sql`jsonb_exists(${schema.refund.ticketIds}, ${ticketId})`, sql`${schema.refund.status} <> 'FAILED'`))
+        .limit(1);
+      if (prev) throw new ConflictException("Esta entrada ya tiene una devolución");
+      const reason = input.text(body.reason, "Motivo", 300) ?? null;
+      const r = await createRefundTx(tx, {
+        tenantId: store.tenantId,
+        orderId: tk.orderId,
+        ticketIds: [ticketId],
+        amountCents: refundCents ?? (await ticketsPaidTx(tx, tk.orderId, [ticketId])).paidCents,
+        reason,
+        createdBy: store.userId,
+      });
+      if (!r) throw new BadRequestException("Esta entrada no se pagó: no hay nada que devolver");
+      await this.auditTx(tx, "ticket.refunded", { ticketId, refundId: r.id, amountCents: r.amountCents });
+      return { ok: true as const, status: r.status, amountCents: r.amountCents };
+    });
+  }
+
+  /** Vuelve a enviar a la pasarela una devolución que falló. */
+  async retryRefund(eventId: string, refundId: string) {
+    this.assertPromoter();
+    return this.db.run(async (tx) => {
+      const r = await this.loadRefundTx(tx, eventId, refundId);
+      if (r.status !== "FAILED") throw new ConflictException("Solo se reintenta una devolución fallida");
+      await tx
+        .update(schema.refund)
+        .set({ status: "PENDING", error: null, updatedAt: new Date() })
+        .where(eq(schema.refund.id, refundId));
+      await tx.insert(schema.outbox).values({
+        tenantId: getStore()!.tenantId,
+        type: "refund.process",
+        payload: { refundId },
+      });
+      await this.auditTx(tx, "refund.retried", { refundId });
+      return { ok: true as const };
+    });
+  }
+
+  /** Taquilla: el promotor confirma que ha devuelto el dinero en mano. */
+  async markRefundDone(eventId: string, refundId: string) {
+    this.assertPromoter();
+    return this.db.run(async (tx) => {
+      const r = await this.loadRefundTx(tx, eventId, refundId);
+      if (r.status !== "MANUAL") throw new ConflictException("Esta devolución no es de taquilla");
+      await tx
+        .update(schema.refund)
+        .set({ status: "SUCCEEDED", updatedAt: new Date() })
+        .where(eq(schema.refund.id, refundId));
+      await this.auditTx(tx, "refund.manual_done", { refundId, amountCents: r.amountCents });
+      return { ok: true as const };
+    });
+  }
+
+  private async loadRefundTx(tx: Tx, eventId: string, refundId: string) {
+    const [r] = await tx
+      .select({ id: schema.refund.id, status: schema.refund.status, amountCents: schema.refund.amountCents })
+      .from(schema.refund)
+      .innerJoin(schema.order, eq(schema.order.id, schema.refund.orderId))
+      .where(and(eq(schema.refund.id, refundId), eq(schema.order.eventId, eventId)));
+    if (!r) throw new NotFoundException("Devolución no encontrada");
+    return r;
   }
 
   /**
@@ -298,6 +454,7 @@ export class TicketsService {
         amountCents: 0n,
         status: "CAPTURED",
       });
+      await tx.update(schema.holdSeat).set({ priceCents: 0 }).where(eq(schema.holdSeat.holdId, holdId));
       // El nombre del invitado, como titular de las entradas si el formulario lo pide.
       if (buyerName) await this.prefillNameTx(tx, eventId, holdId, buyerName);
       const tickets = await this.reservation.issueHoldForPosTx(tx, holdId, o.id);
@@ -400,6 +557,8 @@ export class TicketsService {
         "Pedido",
         "Canal",
         "Código descuento",
+        "Pagado",
+        "Devuelto",
         "Emitida",
         "Validada",
         ...cols.map((c) => c.label),
@@ -417,6 +576,10 @@ export class TicketsService {
           r.orderId,
           CHANNEL_LABEL[r.channel],
           r.couponCode ?? "",
+          r.priceCents == null ? "" : money(r.priceCents),
+          r.refund && r.refund.status !== "FAILED"
+            ? `${money(r.refund.amountCents)}${r.refund.status === "SUCCEEDED" ? "" : " (en curso)"}`
+            : "",
           when(r.createdAt),
           when(r.checkedInAt),
           ...cols.map((c) => byField.get(c.id) ?? ""),
@@ -481,6 +644,9 @@ export class TicketsService {
     });
   }
 }
+
+/** Importe para el CSV: «12,50» (sin símbolo, para que Excel lo trate como número). */
+const money = (cents: number) => (cents / 100).toFixed(2).replace(".", ",");
 
 /**
  * Celda CSV escapada. Neutraliza la inyección de fórmulas (=, +, -, @ al inicio) que

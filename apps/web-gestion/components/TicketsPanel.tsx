@@ -4,12 +4,17 @@ import { useCallback, useEffect, useState } from "react";
 import {
   type AttendeeField,
   downloadTicketsCsv,
+  euros,
   type EventDetail,
   type IssuedTicketRow,
   issueManualTickets,
   listAttendeeFields,
   listTickets,
+  markRefundDone,
+  refundVoidedTicket,
+  type RefundStatus,
   resendTicket,
+  retryRefund,
   type TicketChannel,
   type TicketFilters,
   type TicketPage,
@@ -20,6 +25,12 @@ import {
 import { formatInZone } from "../lib/time";
 
 const STATUS_LABEL: Record<TicketStatus, string> = { ISSUED: "Válida", CHECKED_IN: "Validada", VOID: "Anulada" };
+const REFUND_SHORT: Record<RefundStatus, string> = {
+  PENDING: "devolviendo…",
+  MANUAL: "por devolver en mano",
+  SUCCEEDED: "devuelta",
+  FAILED: "devolución fallida",
+};
 const CHANNEL_LABEL: Record<TicketChannel, string> = { online: "Online", taquilla: "Taquilla", invitacion: "Invitación" };
 
 /**
@@ -251,6 +262,7 @@ function TicketRows({
         </td>
         <td>
           <span className={`badge ${t.status}`}>{STATUS_LABEL[t.status]}</span>
+          {t.refund && <div className="faint">{REFUND_SHORT[t.refund.status]}</div>}
         </td>
         <td className="faint" style={{ fontSize: 13 }}>
           {when(t.createdAt)}
@@ -284,12 +296,13 @@ function TicketDetail({
   onDone: (msg: string) => Promise<void>;
   onError: (msg: string | null) => void;
 }) {
-  const [mode, setMode] = useState<"view" | "edit" | "resend" | "void">("view");
+  const [mode, setMode] = useState<"view" | "edit" | "resend" | "void" | "refund">("view");
   const [busy, setBusy] = useState(false);
   const applicable = fields.filter(
     (f) => !f.ticketTypeIds?.length || (t.ticketTypeId != null && f.ticketTypeIds.includes(t.ticketTypeId)),
   );
   const isVoid = t.status === "VOID";
+  const refundable = canRefund(t);
 
   async function run(fn: () => Promise<string>) {
     setBusy(true);
@@ -320,7 +333,50 @@ function TicketDetail({
           <div className="faint">Validada en el acceso</div>
           {when(t.checkedInAt)}
         </div>
+        <div>
+          <div className="faint">Pagado</div>
+          {t.channel === "invitacion" ? "Invitación" : t.priceCents == null ? "— (venta anterior)" : euros(t.priceCents)}
+          {t.couponCode && <span className="faint"> · código {t.couponCode}</span>}
+        </div>
       </div>
+
+      {t.refund && (
+        <div className={`notice ${REFUND_NOTICE[t.refund.status]}`}>
+          {REFUND_TEXT[t.refund.status](euros(t.refund.amountCents))}
+          {t.refund.error && <div style={{ fontSize: 13, marginTop: 4 }}>Motivo: {t.refund.error}</div>}
+          {t.refund.status === "FAILED" && (
+            <button
+              className="btn"
+              style={{ marginTop: 8 }}
+              disabled={busy}
+              onClick={() =>
+                run(async () => {
+                  await retryRefund(token, eventId, t.refund!.id);
+                  return "Devolución enviada de nuevo a la pasarela.";
+                })
+              }
+            >
+              Reintentar
+            </button>
+          )}
+          {t.refund.status === "MANUAL" && (
+            <button
+              className="btn"
+              style={{ marginTop: 8 }}
+              disabled={busy}
+              onClick={() =>
+                window.confirm(`¿Confirmas que has devuelto ${euros(t.refund!.amountCents)} al comprador?`) &&
+                run(async () => {
+                  await markRefundDone(token, eventId, t.refund!.id);
+                  return "Devolución marcada como hecha.";
+                })
+              }
+            >
+              Marcar como devuelto
+            </button>
+          )}
+        </div>
+      )}
 
       {mode === "edit" ? (
         <AttendeeEditForm
@@ -376,13 +432,38 @@ function TicketDetail({
           ticket={t}
           busy={busy}
           onCancel={() => setMode("view")}
-          onVoid={(release, reason) =>
+          onVoid={(release, reason, refund) =>
             run(async () => {
-              await voidTicket(token, eventId, t.id, { release, reason });
-              return release ? "Entrada anulada y plaza de nuevo a la venta." : "Entrada anulada (la plaza sigue bloqueada).";
+              const r = await voidTicket(token, eventId, t.id, { release, reason, ...refund });
+              return (
+                (release ? "Entrada anulada y plaza de nuevo a la venta." : "Entrada anulada (la plaza sigue bloqueada).") +
+                (r.refund ? ` ${REFUND_TEXT[r.refund.status](euros(r.refund.amountCents))}` : "")
+              );
             })
           }
         />
+      )}
+
+      {mode === "refund" && (
+        <RefundForm
+          ticket={t}
+          busy={busy}
+          onCancel={() => setMode("view")}
+          onRefund={(refundCents, reason) =>
+            run(async () => {
+              const r = await refundVoidedTicket(token, eventId, t.id, { refundCents, reason });
+              return REFUND_TEXT[r.status](euros(r.amountCents));
+            })
+          }
+        />
+      )}
+
+      {mode === "view" && isVoid && !t.refund && refundable && (
+        <div className="row">
+          <button className="btn" onClick={() => setMode("refund")}>
+            Devolver el dinero
+          </button>
+        </div>
       )}
 
       {mode === "view" && !isVoid && (
@@ -525,6 +606,71 @@ function ResendForm({
   );
 }
 
+/** ¿Hay algo que devolver? (las invitaciones y entradas de 0 € no se cobraron). */
+const canRefund = (t: IssuedTicketRow) => t.channel !== "invitacion" && t.priceCents !== 0;
+
+const REFUND_TEXT: Record<RefundStatus, (amount: string) => string> = {
+  PENDING: (a) => `Devolviendo ${a} a la tarjeta del comprador…`,
+  MANUAL: (a) => `Pendiente de devolver ${a} en mano (venta de taquilla).`,
+  SUCCEEDED: (a) => `${a} devueltos.`,
+  FAILED: (a) => `No se pudo devolver ${a}.`,
+};
+const REFUND_NOTICE: Record<RefundStatus, string> = { PENDING: "warn", MANUAL: "warn", SUCCEEDED: "ok", FAILED: "error" };
+
+/** Casilla e importe de la devolución (compartidos por anular y «devolver el dinero»). */
+function RefundFields({
+  ticket: t,
+  enabled,
+  onEnabled,
+  amount,
+  onAmount,
+  optional,
+}: {
+  ticket: IssuedTicketRow;
+  enabled: boolean;
+  onEnabled: (v: boolean) => void;
+  amount: string;
+  onAmount: (v: string) => void;
+  optional: boolean;
+}) {
+  return (
+    <div className="stack" style={{ gap: 6 }}>
+      {optional && (
+        <label className="check">
+          <input type="checkbox" checked={enabled} onChange={(e) => onEnabled(e.target.checked)} /> Devolver el dinero
+        </label>
+      )}
+      {enabled && (
+        <label className="field">
+          Importe a devolver (€)
+          <input
+            className="input"
+            inputMode="decimal"
+            value={amount}
+            onChange={(e) => onAmount(e.target.value)}
+            placeholder={t.priceCents == null ? "Calculado: parte proporcional del pedido" : undefined}
+            style={{ maxWidth: 200 }}
+          />
+          <span className="hint">
+            {t.channel === "taquilla"
+              ? "Venta de taquilla: lo devuelves tú en mano y luego lo marcas como devuelto."
+              : "Se devuelve automáticamente a la tarjeta del comprador, que recibirá un email."}
+          </span>
+        </label>
+      )}
+    </div>
+  );
+}
+
+/** «12,50» → 1250; vacío → undefined (la API usa lo pagado por la entrada). */
+function toCents(v: string): number | undefined | null {
+  if (!v.trim()) return undefined;
+  const n = Number(v.replace(",", "."));
+  return Number.isFinite(n) && n > 0 ? Math.round(n * 100) : null;
+}
+
+const centsToInput = (c: number | null) => (c == null ? "" : (c / 100).toFixed(2).replace(".", ","));
+
 function VoidForm({
   ticket: t,
   busy,
@@ -533,37 +679,96 @@ function VoidForm({
 }: {
   ticket: IssuedTicketRow;
   busy: boolean;
-  onVoid: (release: boolean, reason?: string) => void;
+  onVoid: (release: boolean, reason: string | undefined, refund: { refund: boolean; refundCents?: number }) => void;
   onCancel: () => void;
 }) {
+  const refundable = canRefund(t);
   const [release, setRelease] = useState(true);
   const [reason, setReason] = useState("");
+  const [refund, setRefund] = useState(refundable);
+  const [amount, setAmount] = useState(centsToInput(t.priceCents));
+  const [error, setError] = useState<string | null>(null);
   return (
     <form
       className="stack card"
       style={{ borderColor: "var(--red)" }}
       onSubmit={(e) => {
         e.preventDefault();
-        onVoid(release, reason.trim() || undefined);
+        const cents = refund ? toCents(amount) : undefined;
+        if (cents === null) return setError("Importe no válido");
+        onVoid(release, reason.trim() || undefined, { refund: refund && refundable, refundCents: cents });
       }}
     >
       <strong>Anular la entrada {t.seat}</strong>
       <span className="muted" style={{ fontSize: 14 }}>
-        Dejará de valer en el acceso (también sin conexión, al refrescar la app). No se puede deshacer y{" "}
-        <strong>no devuelve el dinero</strong>: si hay que reembolsar, hazlo aparte.
+        Dejará de valer en el acceso (también sin conexión, al refrescar la app). No se puede deshacer.
         {t.status === "CHECKED_IN" && " Ojo: esta entrada ya se usó para entrar."}
       </span>
       <label className="check">
         <input type="checkbox" checked={release} onChange={(e) => setRelease(e.target.checked)} /> Volver a poner la
         plaza a la venta
       </label>
+      {refundable && (
+        <RefundFields
+          ticket={t}
+          enabled={refund}
+          onEnabled={setRefund}
+          amount={amount}
+          onAmount={setAmount}
+          optional
+        />
+      )}
       <label className="field">
-        Motivo (opcional, queda en el registro)
+        Motivo (opcional; queda en el registro y, si hay devolución, se le indica al comprador)
         <input className="input" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={300} />
       </label>
+      {error && <div className="notice error">{error}</div>}
       <div className="row">
         <button className="btn danger" disabled={busy}>
-          {busy ? "Anulando…" : "Anular entrada"}
+          {busy ? "Anulando…" : refund && refundable ? "Anular y devolver" : "Anular entrada"}
+        </button>
+        <button type="button" className="btn" onClick={onCancel}>
+          Cancelar
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function RefundForm({
+  ticket: t,
+  busy,
+  onRefund,
+  onCancel,
+}: {
+  ticket: IssuedTicketRow;
+  busy: boolean;
+  onRefund: (refundCents: number | undefined, reason?: string) => void;
+  onCancel: () => void;
+}) {
+  const [amount, setAmount] = useState(centsToInput(t.priceCents));
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <form
+      className="stack card"
+      onSubmit={(e) => {
+        e.preventDefault();
+        const cents = toCents(amount);
+        if (cents === null) return setError("Importe no válido");
+        onRefund(cents, reason.trim() || undefined);
+      }}
+    >
+      <strong>Devolver el dinero de la entrada {t.seat}</strong>
+      <RefundFields ticket={t} enabled onEnabled={() => {}} amount={amount} onAmount={setAmount} optional={false} />
+      <label className="field">
+        Motivo (opcional; se le indica al comprador)
+        <input className="input" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={300} />
+      </label>
+      {error && <div className="notice error">{error}</div>}
+      <div className="row">
+        <button className="btn primary" disabled={busy}>
+          {busy ? "Devolviendo…" : "Devolver"}
         </button>
         <button type="button" className="btn" onClick={onCancel}>
           Cancelar

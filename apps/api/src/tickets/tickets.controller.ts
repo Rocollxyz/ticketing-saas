@@ -45,7 +45,30 @@ export class TicketsController {
     return this.tickets.resend(id, ticketId, body ?? {});
   }
 
-  /** { release?: boolean (por defecto true), reason? } */
+  /** Evento cancelado: anula todo y devuelve el dinero de cada pedido. */
+  @Post("refund-all")
+  refundAll(@Param("id") id: string) {
+    return this.tickets.refundAll(id);
+  }
+
+  @Post("refunds/:refundId/retry")
+  retryRefund(@Param("id") id: string, @Param("refundId") refundId: string) {
+    return this.tickets.retryRefund(id, refundId);
+  }
+
+  /** Devolución de taquilla hecha en mano. */
+  @Post("refunds/:refundId/done")
+  refundDone(@Param("id") id: string, @Param("refundId") refundId: string) {
+    return this.tickets.markRefundDone(id, refundId);
+  }
+
+  /** Entrada ya anulada: { refundCents?, reason? }. */
+  @Post(":ticketId/refund")
+  refund(@Param("id") id: string, @Param("ticketId") ticketId: string, @Body() body: Record<string, unknown>) {
+    return this.tickets.refundVoided(id, ticketId, body ?? {});
+  }
+
+  /** { release?: boolean (por defecto true), reason?, refund?: boolean, refundCents? } */
   @Post(":ticketId/void")
   void(@Param("id") id: string, @Param("ticketId") ticketId: string, @Body() body: Record<string, unknown>) {
     return this.tickets.void(id, ticketId, body ?? {});

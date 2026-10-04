@@ -89,6 +89,11 @@ export const paymentStatus = pgEnum("payment_status", [
   "REFUNDED",
 ]);
 
+// Reembolsos. PENDING: por enviar a la pasarela (lo hace el outbox). MANUAL: venta en
+// taquilla, el promotor devuelve el dinero en mano y lo marca. SUCCEEDED/FAILED: final
+// (un FAILED se puede reintentar).
+export const refundStatus = pgEnum("refund_status", ["PENDING", "MANUAL", "SUCCEEDED", "FAILED"]);
+
 export const ticketStatus = pgEnum("ticket_status", ["ISSUED", "CHECKED_IN", "VOID"]);
 
 export const checkInResult = pgEnum("check_in_result", ["OK", "DUPLICATE", "INVALID"]);

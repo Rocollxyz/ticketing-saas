@@ -93,7 +93,15 @@ export class CheckoutService {
       const lines = await this.priceHoldTx(tx, h.id, seats.length);
       const subtotal = lines.reduce((acc, l) => acc + l.amountCents, 0);
       const code = buyer.couponCode?.trim();
-      const discount = code ? (await resolveCouponTx(tx, code, h.eventId, lines)).discountCents : 0;
+      const applied = code ? await resolveCouponTx(tx, code, h.eventId, lines) : null;
+      const discount = applied?.discountCents ?? 0;
+      // Lo que se cobra por cada plaza (se copiará a la entrada): base de los reembolsos.
+      for (const [i, l] of lines.entries()) {
+        await tx
+          .update(schema.holdSeat)
+          .set({ priceCents: l.amountCents - (applied?.lineDiscounts[i] ?? 0) })
+          .where(and(eq(schema.holdSeat.holdId, h.id), eq(schema.holdSeat.seatId, l.seatId!)));
+      }
       return {
         amountCents: BigInt(subtotal - discount),
         discountCents: BigInt(discount),
@@ -190,7 +198,11 @@ export class CheckoutService {
   /** Precio vigente de cada plaza del hold. */
   private async priceHoldTx(tx: Tx, holdId: string, seatCount: number): Promise<PricedLine[]> {
     const priced = await tx
-      .select({ ticketTypeId: schema.ticketType.id, amount: currentPriceCents(schema.ticketType.id) })
+      .select({
+        seatId: schema.holdSeat.seatId,
+        ticketTypeId: schema.ticketType.id,
+        amount: currentPriceCents(schema.ticketType.id),
+      })
       .from(schema.holdSeat)
       .innerJoin(schema.seat, eq(schema.seat.id, schema.holdSeat.seatId))
       .innerJoin(schema.ticketType, eq(schema.ticketType.id, schema.seat.ticketTypeId))
@@ -198,7 +210,7 @@ export class CheckoutService {
     if (priced.length !== seatCount || priced.some((p) => p.amount == null)) {
       throw new BadRequestException("Hay asientos sin precio asignado");
     }
-    return priced.map((p) => ({ ticketTypeId: p.ticketTypeId, amountCents: Number(p.amount) }));
+    return priced.map((p) => ({ seatId: p.seatId, ticketTypeId: p.ticketTypeId, amountCents: Number(p.amount) }));
   }
 
   /**

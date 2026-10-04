@@ -32,11 +32,22 @@ export interface PaymentWebhookEvent {
  */
 export type CancelOutcome = "canceled" | "succeeded" | "processing";
 
+/** Resultado de pedir una devolución. "pending": la pasarela la completará más tarde. */
+export interface RefundResult {
+  providerRef: string;
+  status: "succeeded" | "pending" | "failed";
+}
+
 export interface PaymentProvider {
   readonly name: string;
   createIntent(args: CreateIntentArgs): Promise<CreateIntentResult>;
   /** Cancela el cobro si aún no se ha completado (al caducar o liberar la reserva). */
   cancelIntent(providerRef: string): Promise<CancelOutcome>;
+  /**
+   * Devuelve `amountCents` de un cobro completado. `idempotencyKey` (el id de nuestra
+   * fila `refund`) garantiza que un reintento no devuelve el dinero dos veces.
+   */
+  refund(providerRef: string, amountCents: number, idempotencyKey: string): Promise<RefundResult>;
   /**
    * Verifica la firma del webhook y normaliza el evento. Devuelve null si la firma
    * no es válida (→ 400). Recibe el cuerpo CRUDO para poder verificar la firma.

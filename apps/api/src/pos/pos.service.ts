@@ -213,13 +213,17 @@ export class PosService {
     seatCount: number,
   ): Promise<bigint> {
     const priced = await tx
-      .select({ amount: currentPriceCents(schema.ticketType.id) })
+      .select({ id: schema.holdSeat.id, amount: currentPriceCents(schema.ticketType.id) })
       .from(schema.holdSeat)
       .innerJoin(schema.seat, eq(schema.seat.id, schema.holdSeat.seatId))
       .innerJoin(schema.ticketType, eq(schema.ticketType.id, schema.seat.ticketTypeId))
       .where(eq(schema.holdSeat.holdId, holdId));
     if (priced.length !== seatCount || priced.some((p) => p.amount == null)) {
       throw new BadRequestException("Hay asientos sin precio asignado");
+    }
+    // Lo cobrado por cada plaza (se copia a la entrada): base de los reembolsos.
+    for (const p of priced) {
+      await tx.update(schema.holdSeat).set({ priceCents: p.amount }).where(eq(schema.holdSeat.id, p.id));
     }
     return priced.reduce((acc, r) => acc + BigInt(r.amount!), 0n);
   }
