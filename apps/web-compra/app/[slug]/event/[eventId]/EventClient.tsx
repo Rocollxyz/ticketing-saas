@@ -5,6 +5,21 @@ import { useRouter } from "next/navigation";
 import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
 import { loadStripe } from "@stripe/stripe-js";
 import {
+  ArrowLeft,
+  Calendar,
+  CalendarPlus,
+  Clock,
+  CreditCard,
+  Mail,
+  MapPin,
+  Share2,
+  ShieldCheck,
+  Smartphone,
+  Ticket,
+  Undo2,
+  X,
+} from "lucide-react";
+import {
   accentOf,
   API_URL,
   type AttendeeFieldPublic,
@@ -12,6 +27,8 @@ import {
   euros,
   fieldsFor,
   formatDate,
+  inkFor,
+  themeOf,
   type HeldSeat,
   type PaymentMethod,
   type ShopTicketType,
@@ -43,8 +60,7 @@ interface ActiveHold {
   deadline: number;
 }
 
-const card: React.CSSProperties = { background: "#171a21", borderRadius: 10, padding: 16, border: "1px solid #232833" };
-const muted: React.CSSProperties = { fontSize: 14, color: "#9aa3b2" };
+const muted: React.CSSProperties = { fontSize: 14, color: "var(--muted)" };
 
 export default function EventClient({ slug, detail: initial }: { slug: string; detail: EventDetail }) {
   const router = useRouter();
@@ -69,6 +85,7 @@ export default function EventClient({ slug, detail: initial }: { slug: string; d
   const methods = detail.paymentMethods ?? ["card"];
   const [method, setMethod] = useState<PaymentMethod>("card");
   const [billing, setBilling] = useState<BillingInput>(EMPTY_BILLING);
+  const [step, setStep] = useState<"select" | "details">("select");
   const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 
   // sessionId estable de esta pestaña: lo enviamos al reservar para que el servidor
@@ -350,102 +367,87 @@ export default function EventClient({ slug, detail: initial }: { slug: string; d
 
   const stripePromise = useMemo(() => (checkout ? loadStripe(checkout.publishableKey) : null), [checkout]);
 
-  return (
-    <main>
-      <a href={`/${slug}`} style={{ color: "#5b9dff" }}>
-        ← {detail.organizer ? `Más eventos de ${detail.organizer.name}` : "Todos los eventos"}
-      </a>
+  const accent = accentOf(detail.organizer);
+  // Solo se fuerza el color si el promotor eligió uno; si no, cada tema usa su azul.
+  const themeVars = (
+    detail.organizer?.accentColor ? { "--accent": accent, "--accent-ink": inkFor(accent) } : {}
+  ) as React.CSSProperties;
+  const theme = themeOf(detail.organizer);
+  const showMap = !general && sales.open;
+  const fromCents = Math.min(...detail.ticketTypes.map((t) => t.precioCents ?? Infinity));
 
-      {ev.imageUrl && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={ev.imageUrl}
-          alt=""
-          style={{ width: "100%", maxHeight: 320, objectFit: "cover", borderRadius: 12, marginTop: 16 }}
-        />
-      )}
+  // Paso de la caja de compra: ① entradas → ② tus datos. Con reserva activa manda el
+  // contador (asistentes o pago).
+  const canContinue = sales.open && count > 0 && !ruleError;
 
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16 }}>
-        <span style={{ fontSize: 12, color: "#5b9dff", textTransform: "uppercase", letterSpacing: 1 }}>
-          {ev.category}
-        </span>
-        {sales.open && (
-          <span style={{ fontSize: 13, color: live ? "#3ecf8e" : "#7a8190" }}>
-            {live ? "● en vivo" : "○ conectando…"}
-          </span>
-        )}
-      </div>
-      <h1 style={{ margin: "4px 0 8px" }}>{ev.name}</h1>
-      {ev.summary && <p style={{ ...muted, fontSize: 16, marginTop: 0 }}>{ev.summary}</p>}
+  // Móvil: barra fija con el total cuando la caja de compra no se ve.
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [panelVisible, setPanelVisible] = useState(true);
+  useEffect(() => {
+    const el = panelRef.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(([e]) => setPanelVisible(e.isIntersecting), { threshold: 0.15 });
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
 
-      <div style={{ ...card, display: "grid", gap: 6, fontSize: 15 }}>
-        <span>
-          📅 {formatDate(ev.startsAt, ev.timezone, { long: true })}
-          {ev.doorsAt && <span style={muted}> · puertas {formatDate(ev.doorsAt, ev.timezone, { timeOnly: true })}</span>}
-        </span>
-        {venue && (
-          <span>
-            📍 {venue.name}
-            {(venue.address || venue.city) && (
-              <span style={muted}> · {[venue.address, venue.postalCode, venue.city].filter(Boolean).join(", ")}</span>
-            )}
-            {venue.mapsUrl && (
-              <>
-                {" · "}
-                <a href={venue.mapsUrl} target="_blank" rel="noreferrer" style={{ color: "#5b9dff" }}>
-                  ver mapa
-                </a>
-              </>
-            )}
-          </span>
-        )}
-        {ev.minAge != null && <span>🔞 Edad mínima: {ev.minAge} años</span>}
-        {detail.organizer && (
-          <a
-            href={`/${slug}`}
-            style={{ display: "flex", alignItems: "center", gap: 8, color: "inherit", textDecoration: "none", marginTop: 4 }}
-          >
-            <span
-              style={{
-                width: 24,
-                height: 24,
-                borderRadius: 6,
-                background: detail.organizer.logoUrl
-                  ? `center/cover url("${detail.organizer.logoUrl}") #fff`
-                  : accentOf(detail.organizer),
-                display: "grid",
-                placeItems: "center",
-                fontSize: 12,
-                fontWeight: 700,
-                color: "#fff",
+  const purchase = (
+    <div className="panel" ref={panelRef} id="comprar">
+      {!sales.open ? (
+        <>
+          <h2>Entradas</h2>
+          <div className={`notice ${ev.status === "CANCELLED" ? "error" : "warn"}`}>
+            {sales.message}
+            {sales.from && ` (a partir del ${formatDate(sales.from, ev.timezone)})`}
+          </div>
+        </>
+      ) : expired ? (
+        <>
+          <h2>Se ha agotado el tiempo</h2>
+          <p style={muted}>
+            Tus entradas se han liberado y no se ha realizado ningún cobro. Puedes volver a intentarlo si siguen
+            disponibles.
+          </p>
+          <button className="btn-primary" onClick={() => setExpired(false)}>
+            Volver a intentarlo
+          </button>
+        </>
+      ) : hold ? (
+        <>
+          <HoldTimer deadline={hold.deadline} onExpire={onExpire} onChange={changeSelection} busy={loading} />
+          {heldSeats && !checkout && (
+            <AttendeesForm
+              seats={heldSeats}
+              fields={detail.attendeeFields}
+              buyer={{ name: buyerName.trim(), email: email.trim() }}
+              busy={loading}
+              error={error}
+              onSubmit={submitAttendees}
+            />
+          )}
+          {checkout && stripePromise && (
+            <Elements
+              stripe={stripePromise}
+              options={{
+                clientSecret: checkout.clientSecret,
+                locale: "es",
+                // Mismo aspecto que la tienda: tema del promotor y su color de marca. Stripe
+                // pinta en su propio iframe: necesita colores reales, no variables CSS.
+                appearance: stripeAppearance(theme, detail.organizer?.accentColor ? accent : null),
+                fonts: [{ cssSrc: "https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" }],
               }}
             >
-              {!detail.organizer.logoUrl && detail.organizer.name[0]?.toUpperCase()}
-            </span>
-            <span style={muted}>
-              Organiza <strong style={{ color: "#e9edf2" }}>{detail.organizer.name}</strong>
-            </span>
-          </a>
-        )}
-      </div>
-
-      {!sales.open && (
-        <p
-          style={{
-            ...card,
-            marginTop: 16,
-            color: ev.status === "CANCELLED" ? "#ff6b6b" : "#e0a23c",
-            fontWeight: 600,
-          }}
-        >
-          {sales.message}
-          {sales.from && ` (a partir del ${formatDate(sales.from, ev.timezone)})`}
-        </p>
-      )}
-
-      {sales.open && (
-        <section style={{ margin: "20px 0" }}>
-          <h2 style={{ fontSize: 18 }}>Entradas</h2>
+              <PaymentForm slug={slug} eventId={ev.id} total={checkout.amountCents} email={email.trim()} deadline={hold.deadline} />
+            </Elements>
+          )}
+        </>
+      ) : step === "select" ? (
+        <>
+          <div className="panel-steps">
+            <span className="on">1 · Entradas</span>
+            <span>›</span>
+            <span>2 · Tus datos</span>
+          </div>
           {general ? (
             <div style={{ display: "grid", gap: 10 }}>
               {detail.ticketTypes.map((t) => (
@@ -454,30 +456,31 @@ export default function EventClient({ slug, detail: initial }: { slug: string; d
                   t={t}
                   tz={ev.timezone}
                   value={qty[t.id] ?? 0}
-                  disabled={!!hold}
+                  disabled={false}
                   onChange={(n) => setQty((p) => ({ ...p, [t.id]: n }))}
                 />
               ))}
             </div>
           ) : (
-            <SeatMap
-              detail={detail}
-              selected={selected}
-              unavailable={unavailable}
-              sold={sold}
-              locked={!!hold}
-              onToggle={toggle}
-            />
+            <SelectedSeats detail={detail} selected={selected} onRemove={(id) => toggle(id, true)} />
           )}
-        </section>
-      )}
-
-      {/* Durante el formulario de asistentes el error se muestra dentro del formulario. */}
-      {error && !heldSeats && <p style={{ color: "#ff6b6b" }}>{error}</p>}
-
-      {sales.open && !hold && !expired && (
+          {ruleError && <div className="notice warn">{ruleError}</div>}
+          {error && <div className="notice error">{error}</div>}
+          <TotalRow count={count} total={total} payable={payable} coupon={coupon} />
+          <button className="btn-primary" disabled={!canContinue} onClick={() => setStep("details")}>
+            {count === 0 ? (general ? "Elige tus entradas" : "Elige tus asientos") : "Continuar"}
+          </button>
+        </>
+      ) : (
         <>
-          <label style={{ display: "block", marginBottom: 12, fontSize: 14 }}>
+          <div className="panel-steps">
+            <button className="btn-link" style={{ fontSize: 12 }} onClick={() => setStep("select")}>
+              1 · Entradas
+            </button>
+            <span>›</span>
+            <span className="on">2 · Tus datos</span>
+          </div>
+          <label style={{ display: "block", fontSize: 14 }}>
             Tu nombre
             <input
               required
@@ -489,7 +492,7 @@ export default function EventClient({ slug, detail: initial }: { slug: string; d
               style={inputStyle}
             />
           </label>
-          <label style={{ display: "block", marginBottom: 16, fontSize: 14 }}>
+          <label style={{ display: "block", fontSize: 14 }}>
             Email (recibirás aquí tus entradas)
             <input
               type="email"
@@ -498,18 +501,7 @@ export default function EventClient({ slug, detail: initial }: { slug: string; d
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="tu@email.com"
-              style={{
-                display: "block",
-                width: "100%",
-                marginTop: 6,
-                padding: "10px 12px",
-                borderRadius: 8,
-                border: `1px solid ${email && !emailOk ? "#ff6b6b" : "#2b313c"}`,
-                background: "#171a21",
-                color: "#e9edf2",
-                fontSize: 15,
-                boxSizing: "border-box",
-              }}
+              style={{ ...inputStyle, borderColor: email && !emailOk ? "var(--danger)" : "var(--border)" }}
             />
           </label>
           {payable > 0 && (
@@ -524,9 +516,8 @@ export default function EventClient({ slug, detail: initial }: { slug: string; d
           {detail.couponsAvailable && (
             <CouponBox applied={coupon} disabled={count === 0} onApply={applyCoupon} onRemove={() => setCoupon(null)} />
           )}
-          {ruleError && <p style={{ color: "#e0a23c", fontSize: 14 }}>{ruleError}</p>}
           {payable > 0 && methods.length > 1 && (
-            <div style={{ display: "flex", gap: 8, marginBottom: 12, fontSize: 14 }} role="radiogroup" aria-label="Forma de pago">
+            <div style={{ display: "flex", gap: 8, fontSize: 14 }} role="radiogroup" aria-label="Forma de pago">
               {methods.map((m) => (
                 <label
                   key={m}
@@ -536,110 +527,332 @@ export default function EventClient({ slug, detail: initial }: { slug: string; d
                     gap: 8,
                     alignItems: "center",
                     padding: "10px 12px",
-                    borderRadius: 8,
+                    borderRadius: 10,
                     cursor: "pointer",
-                    border: `1px solid ${method === m ? "#5b9dff" : "#2b313c"}`,
-                    background: method === m ? "#1d2b45" : "#171a21",
+                    border: `1px solid ${method === m ? "var(--accent)" : "var(--border)"}`,
+                    background: method === m ? "var(--surface-2)" : "transparent",
                   }}
                 >
                   <input type="radio" name="pay-method" checked={method === m} onChange={() => setMethod(m)} />
-                  {m === "card" ? "💳 Tarjeta" : "📱 Bizum"}
+                  {m === "card" ? <CreditCard size={16} /> : <Smartphone size={16} />}
+                  {m === "card" ? "Tarjeta" : "Bizum"}
                 </label>
               ))}
             </div>
           )}
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <strong>
-              Total:{" "}
-              {coupon && count > 0 && (
-                <s style={{ ...muted, fontWeight: 400 }}>{euros(total)}</s>
-              )}{" "}
-              {count === 0 ? "—" : euros(payable)}
-              {count > 0 && <span style={{ ...muted, fontWeight: 400 }}> · {count} entrada(s)</span>}
-            </strong>
-            <button
-              onClick={comprar}
-              disabled={!canBuy}
-              style={{
-                padding: "12px 24px",
-                borderRadius: 8,
-                border: "none",
-                background: canBuy ? "#5b9dff" : "#2b313c",
-                color: "#fff",
-                fontSize: 16,
-                cursor: canBuy ? "pointer" : "not-allowed",
-              }}
-            >
-              {loading ? "Procesando…" : payable === 0 && count > 0 ? "Reservar gratis" : "Comprar"}
-            </button>
-          </div>
+          {error && <div className="notice error">{error}</div>}
+          <TotalRow count={count} total={total} payable={payable} coupon={coupon} />
+          <button className="btn-primary" onClick={comprar} disabled={!canBuy}>
+            {loading ? "Procesando…" : payable === 0 ? "Reservar gratis" : `Pagar ${euros(payable)}`}
+          </button>
+          {detail.privacy && <PrivacyNotice p={detail.privacy} />}
         </>
       )}
+    </div>
+  );
 
-      {sales.open && !hold && !expired && detail.privacy && <PrivacyNotice p={detail.privacy} />}
+  return (
+    <div className="theme-root" data-theme={theme} style={themeVars}>
+    <main className="page-wide">
+      <a className="back" href={`/${slug}`}>
+        <ArrowLeft size={16} /> {detail.organizer ? `Más eventos de ${detail.organizer.name}` : "Todos los eventos"}
+      </a>
 
-      {expired && (
-        <div style={{ ...card, borderColor: "#e0a23c", margin: "16px 0" }}>
-          <strong style={{ color: "#e0a23c" }}>⏱ Se ha agotado el tiempo de reserva</strong>
-          <p style={{ ...muted, margin: "6px 0 12px" }}>
-            Tus entradas se han liberado y no se ha realizado ningún cobro. Puedes volver a intentarlo si siguen
-            disponibles.
-          </p>
+      <header className="ev-hero">
+        {ev.imageUrl && <div className="ev-hero-bg" style={{ backgroundImage: `url("${ev.imageUrl}")` }} />}
+        {ev.imageUrl && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img className="ev-poster" src={ev.imageUrl} alt={`Cartel de ${ev.name}`} />
+        )}
+        <div style={{ gridColumn: ev.imageUrl ? undefined : "1 / -1" }}>
+          <div className="ev-kicker">
+            {ev.category && <span>{ev.category}</span>}
+            {sales.open && <span className={`live ${live ? "on" : ""}`}>{live ? "● disponibilidad en vivo" : "○ conectando…"}</span>}
+          </div>
+          <h1 className="ev-title">{ev.name}</h1>
+          {ev.summary && <p className="ev-summary">{ev.summary}</p>}
+          <div className="ev-facts">
+            <span className="ev-fact">
+              <Calendar size={18} />
+              <span>
+                {formatDate(ev.startsAt, ev.timezone, { long: true })}
+                {ev.doorsAt && <small> · puertas {formatDate(ev.doorsAt, ev.timezone, { timeOnly: true })}</small>}
+              </span>
+            </span>
+            {venue && (
+              <span className="ev-fact">
+                <MapPin size={18} />
+                <span>
+                  {venue.name}
+                  {(venue.address || venue.city) && <small> · {[venue.address, venue.city].filter(Boolean).join(", ")}</small>}
+                </span>
+              </span>
+            )}
+            {Number.isFinite(fromCents) && sales.open && (
+              <span className="ev-fact">
+                <Ticket size={18} />
+                <span>{fromCents === 0 ? "Gratis" : `Desde ${euros(fromCents)}`}</span>
+              </span>
+            )}
+          </div>
+          <div className="ev-actions">
+            <ShareButton title={ev.name} />
+            {ev.startsAt && (
+              <button className="chip-btn" onClick={() => downloadIcs(ev, venue)}>
+                <CalendarPlus size={15} /> Añadir al calendario
+              </button>
+            )}
+          </div>
+        </div>
+      </header>
+
+      <div className={`ev-grid ${showMap ? "" : "no-map"}`}>
+        {showMap && (
+          <section className="ev-map section">
+            <h2>Elige tus asientos</h2>
+            <SeatMap
+              detail={detail}
+              selected={selected}
+              unavailable={unavailable}
+              sold={sold}
+              locked={!!hold}
+              onToggle={toggle}
+            />
+          </section>
+        )}
+
+        <aside className="ev-side" aria-label="Compra de entradas">
+          {purchase}
+        </aside>
+
+        <div className="ev-info">
+          {ev.description && (
+            <section className="section">
+              <h2>Información</h2>
+              <p className="prose">{ev.description}</p>
+            </section>
+          )}
+
+          <section className="cards">
+            <div className="card">
+              <h3>
+                <Clock size={16} /> Cuándo
+              </h3>
+              <p>{formatDate(ev.startsAt, ev.timezone, { long: true })}</p>
+              {ev.doorsAt && <p style={muted}>Apertura de puertas: {formatDate(ev.doorsAt, ev.timezone, { timeOnly: true })}</p>}
+            </div>
+            {venue && (
+              <div className="card">
+                <h3>
+                  <MapPin size={16} /> Dónde
+                </h3>
+                <p>{venue.name}</p>
+                <p style={muted}>{[venue.address, venue.postalCode, venue.city].filter(Boolean).join(", ")}</p>
+                {venue.mapsUrl && (
+                  <a href={venue.mapsUrl} target="_blank" rel="noreferrer" style={{ fontSize: 14 }}>
+                    Cómo llegar ↗
+                  </a>
+                )}
+              </div>
+            )}
+            {ev.minAge != null && (
+              <div className="card">
+                <h3>
+                  <ShieldCheck size={16} /> Acceso
+                </h3>
+                <p>Edad mínima: {ev.minAge} años</p>
+              </div>
+            )}
+          </section>
+
+          {(ev.refundPolicy || ev.contactEmail) && (
+            <section className="card" style={{ display: "grid", gap: 10 }}>
+              {ev.refundPolicy && (
+                <div>
+                  <h3>
+                    <Undo2 size={16} /> Devoluciones
+                  </h3>
+                  <p style={{ ...muted, whiteSpace: "pre-wrap" }}>{ev.refundPolicy}</p>
+                </div>
+              )}
+              {ev.contactEmail && (
+                <div>
+                  <h3>
+                    <Mail size={16} /> Contacto
+                  </h3>
+                  <a href={`mailto:${ev.contactEmail}`}>{ev.contactEmail}</a>
+                </div>
+              )}
+            </section>
+          )}
+
+          {detail.organizer && (
+            <a href={`/${slug}`} className="card" style={{ display: "flex", alignItems: "center", gap: 12, color: "inherit", textDecoration: "none" }}>
+              <span
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 10,
+                  flex: "none",
+                  background: detail.organizer.logoUrl ? `center/cover url("${detail.organizer.logoUrl}") #fff` : accent,
+                  display: "grid",
+                  placeItems: "center",
+                  fontWeight: 700,
+                  color: inkFor(accent),
+                }}
+              >
+                {!detail.organizer.logoUrl && detail.organizer.name[0]?.toUpperCase()}
+              </span>
+              <span style={{ flex: 1 }}>
+                <span style={{ ...muted, fontSize: 13 }}>Organiza</span>
+                <br />
+                <strong>{detail.organizer.name}</strong>
+              </span>
+              <span style={{ color: "var(--accent)", fontSize: 14 }}>Ver más eventos →</span>
+            </a>
+          )}
+        </div>
+      </div>
+
+      {sales.open && !hold && !expired && (
+        <div className={`mobile-bar ${panelVisible ? "hidden" : ""}`}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 12, color: "var(--muted)" }}>{count > 0 ? `${count} entrada(s)` : "Entradas"}</div>
+            <strong style={{ fontSize: 18 }}>
+              {count > 0 ? euros(payable) : Number.isFinite(fromCents) ? `Desde ${euros(fromCents)}` : "—"}
+            </strong>
+          </div>
           <button
-            onClick={() => setExpired(false)}
-            style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid #2b313c", background: "#1d2b45", color: "#e9edf2", cursor: "pointer" }}
+            className="btn-primary"
+            onClick={() => panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
           >
-            Volver a intentarlo
+            {count > 0 ? "Continuar" : "Comprar"}
           </button>
         </div>
       )}
-
-      {hold && <HoldTimer deadline={hold.deadline} onExpire={onExpire} onChange={changeSelection} busy={loading} />}
-
-      {hold && heldSeats && !checkout && (
-        <AttendeesForm
-          seats={heldSeats}
-          fields={detail.attendeeFields}
-          buyer={{ name: buyerName.trim(), email: email.trim() }}
-          busy={loading}
-          error={error}
-          onSubmit={submitAttendees}
-        />
-      )}
-
-      {checkout && hold && stripePromise && (
-        <Elements stripe={stripePromise} options={{ clientSecret: checkout.clientSecret }}>
-          <PaymentForm slug={slug} eventId={ev.id} total={checkout.amountCents} email={email.trim()} deadline={hold.deadline} />
-        </Elements>
-      )}
-
-      {ev.description && (
-        <section style={{ marginTop: 32 }}>
-          <h2 style={{ fontSize: 18 }}>Información</h2>
-          <p style={{ whiteSpace: "pre-wrap", lineHeight: 1.6, opacity: 0.9 }}>{ev.description}</p>
-        </section>
-      )}
-
-      {(ev.refundPolicy || ev.contactEmail) && (
-        <section style={{ ...card, marginTop: 24, display: "grid", gap: 8, fontSize: 14 }}>
-          {ev.refundPolicy && (
-            <div>
-              <strong>Devoluciones</strong>
-              <p style={{ ...muted, margin: "4px 0 0", whiteSpace: "pre-wrap" }}>{ev.refundPolicy}</p>
-            </div>
-          )}
-          {ev.contactEmail && (
-            <div>
-              <strong>Contacto</strong>{" "}
-              <a href={`mailto:${ev.contactEmail}`} style={{ color: "#5b9dff" }}>
-                {ev.contactEmail}
-              </a>
-            </div>
-          )}
-        </section>
-      )}
     </main>
+    </div>
   );
+}
+
+/** Formulario de pago de Stripe con los colores del tema de la tienda. */
+function stripeAppearance(theme: "light" | "dark", accent: string | null) {
+  const dark = theme === "dark";
+  return {
+    theme: dark ? ("night" as const) : ("stripe" as const),
+    variables: {
+      colorPrimary: accent ?? (dark ? "#5b9dff" : "#2563eb"),
+      colorBackground: dark ? "#0f1115" : "#ffffff",
+      colorText: dark ? "#e9edf2" : "#121826",
+      colorTextSecondary: dark ? "#9aa3b2" : "#4b5563",
+      borderRadius: "10px",
+      fontFamily: "Inter, system-ui, sans-serif",
+    },
+  };
+}
+
+/** Total con el descuento aplicado (tachado el original). */
+function TotalRow({
+  count,
+  total,
+  payable,
+  coupon,
+}: {
+  count: number;
+  total: number;
+  payable: number;
+  coupon: AppliedCoupon | null;
+}) {
+  return (
+    <div className="total-row">
+      <span style={muted}>{count > 0 ? `Total · ${count} entrada${count === 1 ? "" : "s"}` : "Total"}</span>
+      <span>
+        {coupon && count > 0 && <s>{euros(total)}</s>}
+        <strong style={count === 0 ? { color: "var(--faint)" } : undefined}>
+          {count === 0 ? "0,00 €" : payable === 0 ? "Gratis" : euros(payable)}
+        </strong>
+      </span>
+    </div>
+  );
+}
+
+/** Numerado: los asientos elegidos en el plano, en la caja de compra. */
+function SelectedSeats({
+  detail,
+  selected,
+  onRemove,
+}: {
+  detail: EventDetail;
+  selected: Set<string>;
+  onRemove: (id: string) => void;
+}) {
+  const seats = detail.seats.filter((s) => selected.has(s.id));
+  if (!seats.length) return <p style={{ ...muted, margin: 0 }}>Toca los asientos libres en el plano para elegirlos.</p>;
+  return (
+    <div style={{ display: "grid", gap: 8 }}>
+      {seats.map((s) => (
+        <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14 }}>
+          <strong style={{ minWidth: 44 }}>
+            {s.fila}
+            {s.numero}
+          </strong>
+          <span style={{ ...muted, flex: 1 }}>{s.categoria}</span>
+          <span>{euros(s.precioCents)}</span>
+          <button className="btn-link" aria-label={`Quitar ${s.fila}${s.numero}`} onClick={() => onRemove(s.id)}>
+            <X size={16} />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Compartir: menú nativo del móvil o, si no hay, copiar el enlace. */
+function ShareButton({ title }: { title: string }) {
+  const [copied, setCopied] = useState(false);
+  async function share() {
+    const url = window.location.href;
+    if (navigator.share) {
+      await navigator.share({ title, url }).catch(() => {});
+      return;
+    }
+    await navigator.clipboard?.writeText(url);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+  return (
+    <button className="chip-btn" onClick={share}>
+      <Share2 size={15} /> {copied ? "Enlace copiado" : "Compartir"}
+    </button>
+  );
+}
+
+/** Descarga un .ics para añadir el evento al calendario (Google, Apple, Outlook). */
+function downloadIcs(ev: EventDetail["event"], venue: EventDetail["venue"]) {
+  if (!ev.startsAt) return;
+  const stamp = (d: string | Date) => new Date(d).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+  const end = ev.endsAt ?? new Date(new Date(ev.startsAt).getTime() + 3 * 3_600_000).toISOString();
+  const esc = (t: string) => t.replace(/[\\;,]/g, (c) => `\\${c}`).replace(/\n/g, "\\n");
+  const ics = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Entradas//ES",
+    "BEGIN:VEVENT",
+    `UID:${ev.id}@entradas`,
+    `DTSTAMP:${stamp(new Date())}`,
+    `DTSTART:${stamp(ev.startsAt)}`,
+    `DTEND:${stamp(end)}`,
+    `SUMMARY:${esc(ev.name)}`,
+    ...(venue ? [`LOCATION:${esc([venue.name, venue.address, venue.city].filter(Boolean).join(", "))}`] : []),
+    `URL:${window.location.href}`,
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ].join("\r\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([ics], { type: "text/calendar" }));
+  a.download = `${ev.name.replace(/[^\p{L}\p{N}]+/gu, "-")}.ics`;
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
 
 /**
@@ -677,31 +890,36 @@ function HoldTimer({
       role="timer"
       aria-live={urgent ? "assertive" : "off"}
       style={{
-        position: "sticky",
-        top: 0,
-        zIndex: 5,
-        display: "flex",
+        display: "grid",
+        gridTemplateColumns: "auto 1fr",
         alignItems: "center",
-        gap: 12,
-        margin: "16px 0",
-        padding: "12px 16px",
+        columnGap: 14,
+        rowGap: 4,
+        padding: "12px 14px",
         borderRadius: 10,
-        background: urgent ? "#3a2a12" : "#16233a",
-        border: `1px solid ${urgent ? "#e0a23c" : "#2b4a7a"}`,
+        background: urgent ? "var(--warn-bg)" : "var(--info-bg)",
+        border: `1px solid ${urgent ? "var(--warn)" : "var(--info-border)"}`,
       }}
     >
-      <span style={{ fontSize: 26, fontVariantNumeric: "tabular-nums", fontWeight: 700, color: urgent ? "#e0a23c" : "#e9edf2" }}>
+      <span style={{ fontSize: 26, fontVariantNumeric: "tabular-nums", fontWeight: 700, color: urgent ? "var(--warn)" : "var(--text)" }}>
         {mmss}
       </span>
-      <span style={{ flex: 1, fontSize: 14, color: urgent ? "#f0c27a" : "#9fb4cc" }}>
-        {urgent
-          ? "¡Date prisa! Si se acaba el tiempo, tus entradas se liberarán."
-          : "Tus entradas están reservadas mientras completas la compra."}
+      <span style={{ fontSize: 13, lineHeight: 1.35, color: urgent ? "var(--warn-text)" : "var(--info-text)" }}>
+        {urgent ? "¡Date prisa! Al acabarse el tiempo se liberan." : "Entradas reservadas para ti mientras completas la compra."}
       </span>
       <button
         onClick={onChange}
         disabled={busy}
-        style={{ background: "none", border: "none", color: "#5b9dff", cursor: "pointer", fontSize: 13, whiteSpace: "nowrap" }}
+        style={{
+          gridColumn: "1 / -1",
+          justifySelf: "start",
+          background: "none",
+          border: "none",
+          color: "var(--accent)",
+          cursor: "pointer",
+          fontSize: 13,
+          padding: 0,
+        }}
       >
         Cambiar selección
       </button>
@@ -733,7 +951,16 @@ function QuantityRow({
     onChange(Math.max(0, Math.min(max, n)));
   };
   return (
-    <div style={{ ...card, display: "flex", gap: 12, alignItems: "center", opacity: blocked && !disabled ? 0.6 : 1 }}>
+    <div
+      style={{
+        display: "flex",
+        gap: 12,
+        alignItems: "center",
+        padding: "12px 0",
+        borderBottom: "1px solid var(--border)",
+        opacity: blocked && !disabled ? 0.6 : 1,
+      }}
+    >
       <div style={{ flex: 1, display: "grid", gap: 2 }}>
         <strong>{t.name}</strong>
         {t.description && <span style={muted}>{t.description}</span>}
@@ -746,7 +973,7 @@ function QuantityRow({
             </span>
           )}
         </span>
-        <span style={{ fontSize: 12, color: soldOut ? "#ff6b6b" : !t.salesOpen ? "#e0a23c" : "#7a8190" }}>
+        <span style={{ fontSize: 12, color: soldOut ? "var(--danger)" : !t.salesOpen || t.disponibles <= 10 ? "var(--warn)" : "var(--faint)" }}>
           {soldOut
             ? "Agotadas"
             : !t.salesOpen
@@ -777,9 +1004,9 @@ function Stepper({ label, onClick, disabled }: { label: string; onClick: () => v
         width: 34,
         height: 34,
         borderRadius: 8,
-        border: "1px solid #2b313c",
-        background: disabled ? "transparent" : "#1d2b45",
-        color: disabled ? "#4a5160" : "#e9edf2",
+        border: `1px solid ${disabled ? "var(--border)" : "var(--accent)"}`,
+        background: disabled ? "transparent" : "var(--surface-2)",
+        color: disabled ? "var(--disabled)" : "var(--text)",
         fontSize: 18,
         cursor: disabled ? "not-allowed" : "pointer",
       }}
@@ -825,9 +1052,9 @@ function SeatMap({
           gridRowStart: grid ? s.posY! + 1 : undefined,
           padding: "10px 6px",
           borderRadius: 8,
-          border: isSel ? "2px solid #5b9dff" : "1px solid #2b313c",
-          background: !isAvailable ? (isSold ? "#2a2030" : "#2b2718") : isSel ? "#1d2b45" : "#171a21",
-          color: !isAvailable ? "#8a7d72" : "#e9edf2",
+          border: isSel ? "2px solid var(--accent)" : "1px solid var(--border)",
+          background: !isAvailable ? (isSold ? "var(--seat-sold)" : "var(--seat-held)") : isSel ? "var(--surface-2)" : "var(--surface)",
+          color: !isAvailable ? "var(--seat-off-text)" : "var(--text)",
           cursor: isAvailable && !locked ? "pointer" : "not-allowed",
           fontSize: 13,
           transition: "background 0.25s, border-color 0.25s",
@@ -849,7 +1076,7 @@ function SeatMap({
       <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 13, ...muted, marginBottom: 12 }}>
         {detail.ticketTypes.map((t) => (
           <span key={t.id}>
-            <strong style={{ color: "#e9edf2" }}>{t.name}</strong> {euros(t.precioCents)}
+            <strong style={{ color: "var(--text)" }}>{t.name}</strong> {euros(t.precioCents)}
             {t.regularCents != null && ` (anticipada, luego ${euros(t.regularCents)})`}
             {!t.salesOpen && ` · ${t.salesMessage}`}
           </span>
@@ -861,8 +1088,8 @@ function SeatMap({
           padding: "6px 0",
           marginBottom: 16,
           borderRadius: 6,
-          background: "linear-gradient(#23303f,#161d27)",
-          color: "#9fb4cc",
+          background: "linear-gradient(var(--stage-from),var(--stage-to))",
+          color: "var(--info-text)",
           letterSpacing: 4,
           fontSize: 12,
         }}
@@ -884,7 +1111,7 @@ function SeatMap({
       )}
       {unplaced.length > 0 && (
         <>
-          <p style={{ fontSize: 12, color: "#7a8190", marginTop: 16 }}>Sin ubicar en el plano:</p>
+          <p style={{ fontSize: 12, color: "var(--faint)", marginTop: 16 }}>Sin ubicar en el plano:</p>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>{unplaced.map((s) => renderSeat(s, false))}</div>
         </>
       )}
@@ -897,9 +1124,9 @@ function SeatMap({
  * quién es el responsable, para qué, cuánto tiempo y dónde ejercer los derechos.
  */
 function PrivacyNotice({ p }: { p: NonNullable<EventDetail["privacy"]> }) {
-  const link = { color: "#9aa3b2", textDecoration: "underline" } as const;
+  const link = { color: "var(--muted)", textDecoration: "underline" } as const;
   return (
-    <p style={{ fontSize: 12, color: "#7a8190", lineHeight: 1.5, margin: "12px 0 0" }}>
+    <p style={{ fontSize: 12, color: "var(--faint)", lineHeight: 1.5, margin: "12px 0 0" }}>
       {p.termsUrl && (
         <>
           Al comprar aceptas las{" "}
@@ -990,26 +1217,12 @@ function PaymentForm({
   }
 
   return (
-    <div style={{ marginTop: 24 }}>
-      <h2>Pago — {euros(total)}</h2>
-      <p style={{ fontSize: 13, color: "#7a8190" }}>Las entradas se enviarán a {email}</p>
+    <div>
+      <h2 style={{ fontSize: 18, margin: "0 0 4px" }}>Pago · {euros(total)}</h2>
+      <p style={{ fontSize: 13, color: "var(--faint)" }}>Las entradas se enviarán a {email}</p>
       <PaymentElement />
-      {error && <p style={{ color: "#ff6b6b" }}>{error}</p>}
-      <button
-        onClick={pay}
-        disabled={!stripe || paying}
-        style={{
-          marginTop: 16,
-          padding: "12px 24px",
-          borderRadius: 8,
-          border: "none",
-          background: "#3ecf8e",
-          color: "#08130d",
-          fontSize: 16,
-          fontWeight: 600,
-          cursor: "pointer",
-        }}
-      >
+      {error && <p style={{ color: "var(--danger)" }}>{error}</p>}
+      <button className="btn-primary" style={{ marginTop: 16 }} onClick={pay} disabled={!stripe || paying}>
         {paying ? "Pagando…" : "Pagar"}
       </button>
     </div>

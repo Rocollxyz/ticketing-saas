@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { accentOf, fetchEvents, fetchPastEvents, fetchProfile, type Profile } from "../../lib/api";
+import { accentOf, themeOf, fetchEvents, fetchPastEvents, fetchProfile, type Profile } from "../../lib/api";
 import EventsBrowser from "./EventsBrowser";
 
 type Params = { params: Promise<{ slug: string }> };
@@ -27,7 +27,8 @@ export default async function PromoterPage({ params }: Params) {
   const links = SOCIAL_LABELS.filter(([k]) => profile[k]);
 
   return (
-    <main>
+    <div className="theme-root" data-theme={themeOf(profile)}>
+    <main className="page">
       <header style={{ marginBottom: 28 }}>
         <div
           style={{
@@ -35,7 +36,7 @@ export default async function PromoterPage({ params }: Params) {
             borderRadius: 14,
             background: profile.coverUrl
               ? `center/cover url("${profile.coverUrl}")`
-              : `linear-gradient(135deg, ${accent}66, #161d27 70%)`,
+              : `linear-gradient(135deg, ${accent}66, var(--stage-to) 70%)`,
           }}
         />
         {/* Solo el logo se superpone a la portada; el nombre queda debajo. */}
@@ -46,7 +47,7 @@ export default async function PromoterPage({ params }: Params) {
               height: 96,
               flexShrink: 0,
               borderRadius: 18,
-              border: "4px solid #0f1115",
+              border: "4px solid var(--bg)",
               background: profile.logoUrl ? `center/cover url("${profile.logoUrl}") #fff` : accent,
               display: "grid",
               placeItems: "center",
@@ -96,6 +97,7 @@ export default async function PromoterPage({ params }: Params) {
 
       <EventsBrowser slug={slug} events={events} past={past} accent={accent} />
     </main>
+    </div>
   );
 }
 

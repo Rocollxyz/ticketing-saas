@@ -38,12 +38,12 @@ export default async function SuccessPage({
 
   if (state === "failed") {
     return (
-      <main style={{ textAlign: "center", paddingTop: 60 }}>
+      <main className="page" style={{ textAlign: "center", paddingTop: 60 }}>
         <div style={{ fontSize: 56 }}>⚠️</div>
         <h1>El pago no se ha completado</h1>
         {info && <p style={{ fontSize: 18, margin: "0 0 8px" }}>{info.name}</p>}
         <p style={{ opacity: 0.8 }}>No se ha cobrado nada. Tus entradas se liberarán en unos minutos.</p>
-        <Link href={eventId ? `/${slug}/event/${eventId}` : `/${slug}`} style={{ color: "#5b9dff" }}>
+        <Link href={eventId ? `/${slug}/event/${eventId}` : `/${slug}`} style={{ color: "var(--accent)" }}>
           ← Volver a intentarlo
         </Link>
       </main>
@@ -51,7 +51,7 @@ export default async function SuccessPage({
   }
 
   return (
-    <main style={{ textAlign: "center", paddingTop: 60 }}>
+    <main className="page" style={{ textAlign: "center", paddingTop: 60 }}>
       <div style={{ fontSize: 56 }}>🎟️</div>
       <h1>{state === "pending" ? "Estamos confirmando tu pago…" : "¡Compra completada!"}</h1>
       {info && <p style={{ fontSize: 18, margin: "0 0 8px" }}>{info.name}</p>}
@@ -64,7 +64,7 @@ export default async function SuccessPage({
         <p
           style={{
             whiteSpace: "pre-wrap",
-            background: "#171a21",
+            background: "var(--surface)",
             borderRadius: 10,
             padding: 16,
             textAlign: "left",
@@ -75,7 +75,7 @@ export default async function SuccessPage({
           {info.message}
         </p>
       )}
-      <Link href={`/${slug}`} style={{ color: "#5b9dff" }}>
+      <Link href={`/${slug}`} style={{ color: "var(--accent)" }}>
         ← Volver a los eventos
       </Link>
     </main>

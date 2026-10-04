@@ -17,6 +17,7 @@ export const tenant = pgTable("tenant", {
   logoUrl: text("logo_url"),
   coverUrl: text("cover_url"),
   accentColor: text("accent_color"), // #rrggbb: botones/enlaces de su página
+  shopTheme: text("shop_theme").notNull().default("light"), // light | dark: tema de su tienda
   city: text("city"),
   contactEmail: text("contact_email"),
   phone: text("phone"),

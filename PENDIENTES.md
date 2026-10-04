@@ -48,6 +48,23 @@ descargar entradas) · calendario/listado incrustable en otras webs · salida y 
 prefijo de número de entrada · Stripe Connect / planes y comisiones para promotores ·
 directorio de promotores en la portada `/` (hoy es una demo fija).
 
+### Presentación y experiencia del comprador (análisis 2026-10-04)
+- ✅ **Ficha de evento estilo Ticketmaster**: cabecera con cartel sin recortar, información en
+  el centro y compra en una caja fija a la derecha por pasos (entradas → datos → pago); en
+  numerado, el plano en el centro; móvil con barra fija de compra; compartir y añadir al
+  calendario; colores del promotor; tipografía Inter e iconos. Es la plantilla «Clásica» de
+  Darrian (reutilizar `app/shop.css` como base de su sistema de temas).
+- Siguientes, por orden: **integración en la web del promotor** (botón que abre la compra
+  encima de su web + módulo incrustado de cartelera/evento; Redsys/3DS a pantalla completa),
+  **Google y redes** (datos estructurados `Event`, imagen para compartir generada, sitemap),
+  **página del promotor** (evento destacado, rejilla de carteles, filtros), **dominio propio**
+  por promotor, **después de comprar** (entradas visibles, Wallet, calendario) y la **portada
+  `/`**. Decisión pendiente del usuario: marca blanca (recomendado) o escaparate propio.
+- ✅ **Tema de la tienda**: blanco por defecto (decidido 2026-10-04); el promotor puede elegir
+  oscuro en su perfil (`tenant.shop_theme`). El formulario de pago de Stripe sigue el tema.
+- **Apple Pay / Google Pay**: aparecen solos en el formulario de Stripe al servir la tienda por
+  HTTPS y verificar el dominio (con el despliegue).
+
 ### Huecos conocidos de lo ya hecho
 > Limitaciones de lo que ya funciona. Se apuntan aquí en cuanto aparecen y se quitan al
 > resolverlas. **Antes del paso a producción se repasa la lista y se resuelve lo que quede.**
@@ -116,7 +133,7 @@ directorio de promotores en la portada `/` (hoy es una demo fija).
 ## Coordinación entre líneas
 - `main` nunca recibe trabajo a medias de Darrian/Raquel; se integrarán cuando estén
   maduras (decisión aparte).
-- La BD es compartida y ya tiene la migración **0015** (RGPD; 0014 facturación, 0013
+- La BD es compartida y ya tiene la migración **0016** (tema de la tienda; 0015 RGPD; 0014 facturación, 0013
   reembolsos, 0012 cupones, 0011 datos de asistentes). Las claves de QR están cifradas:
   las ventanas de Darrian/Raquel necesitan la misma `MASTER_KEY` en su `.env`. Para que
   Darrian/Raquel tengan el código al día: en su ventana, «trae los cambios de main»

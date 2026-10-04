@@ -223,6 +223,8 @@ export interface Profile {
   logoUrl: string | null;
   coverUrl: string | null;
   accentColor: string | null;
+  /** Tema de su tienda: claro (por defecto) u oscuro. */
+  shopTheme: "light" | "dark";
   city: string | null;
   contactEmail: string | null;
   phone: string | null;

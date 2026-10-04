@@ -1,0 +1,169 @@
+/*
+ * Estilos de la tienda (lo que ve el comprador). Los colores se definen UNA vez como
+ * variables; el color de marca del promotor sobrescribe --accent / --accent-ink en la
+ * raíz de su página. Base de la plantilla «Clásica» (y del tema de Darrian).
+ */
+:root, [data-theme="light"] {
+  /* Tema CLARO (por defecto). */
+  --bg: #f5f6f8;
+  --surface: #ffffff;
+  --surface-2: #eef1f5;
+  --border: #dde2e8;
+  --text: #121826;
+  --muted: #4b5563;
+  --faint: #6b7280;
+  --accent: #2563eb;
+  --accent-ink: #ffffff; /* texto sobre --accent (blanco o negro según contraste) */
+  --ok: #15803d;
+  --warn: #b45309;
+  --danger: #dc2626;
+  --selected: #e8f0fe;
+  --info-bg: #eef4ff;
+  --info-border: #c7d7fe;
+  --info-text: #1e3a8a;
+  --warn-bg: #fff7e6;
+  --warn-border: #f5c26b;
+  --warn-text: #92400e;
+  --seat-sold: #f1e7ee;
+  --seat-held: #fbf3df;
+  --seat-off-text: #9ca3af;
+  --disabled: #c0c6cf;
+  --stage-from: #e5e7eb;
+  --stage-to: #f3f4f6;
+  --stage-text: #6b7280;
+  --chip-bg: #ffffffd9;
+  --bar-bg: #ffffffee;
+  --shadow: 0 10px 30px #0f172a14;
+  --poster-shadow: 0 18px 40px #0f172a33;
+  --hero-blur-opacity: 0.22;
+  --radius: 14px;
+  color-scheme: light;
+}
+
+/* Tema OSCURO: previsto para que el promotor lo elija (data-theme en la raíz de su página). */
+[data-theme="dark"] {
+  --bg: #0f1115;
+  --surface: #171a21;
+  --surface-2: #1d212a;
+  --border: #2b313c;
+  --text: #e9edf2;
+  --muted: #9aa3b2;
+  --faint: #7a8190;
+  --accent: #5b9dff;
+  --ok: #3ecf8e;
+  --warn: #e0a23c;
+  --danger: #ff6b6b;
+  --selected: #1d2b45;
+  --info-bg: #16233a;
+  --info-border: #2b4a7a;
+  --info-text: #9fb4cc;
+  --warn-bg: #3a2a12;
+  --warn-border: #e0a23c;
+  --warn-text: #f0c27a;
+  --seat-sold: #2a2030;
+  --seat-held: #2b2718;
+  --seat-off-text: #8a7d72;
+  --disabled: #4a5160;
+  --stage-from: #23303f;
+  --stage-to: #161d27;
+  --stage-text: #9fb4cc;
+  --chip-bg: #00000066;
+  --bar-bg: #0f1115f2;
+  --shadow: 0 10px 30px #0005;
+  --poster-shadow: 0 20px 50px #0008;
+  --hero-blur-opacity: 0.35;
+  color-scheme: dark;
+}
+
+/* Raíz con tema: pinta el fondo de toda la página aunque el <body> sea de otro tema. */
+.theme-root { min-height: 100vh; background: var(--bg); color: var(--text); }
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased; }
+a { color: var(--accent); }
+
+/* Contenedores: columna de lectura (perfil, éxito) y ancho (ficha de evento). */
+.page { max-width: 760px; margin: 0 auto; padding: 32px 20px; }
+.page-wide { max-width: 1180px; margin: 0 auto; padding: 24px 20px 120px; }
+
+.back { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); text-decoration: none; font-size: 14px; }
+.back:hover { color: var(--text); }
+
+/* ─── Ficha de evento ─────────────────────────────────────────────── */
+
+.ev-hero {
+  position: relative; overflow: hidden; border-radius: var(--radius); margin: 16px 0 28px;
+  display: grid; grid-template-columns: minmax(0, 300px) 1fr; gap: 28px; align-items: end;
+  padding: 28px; background: var(--surface); border: 1px solid var(--border); isolation: isolate;
+}
+/* Fondo: el propio cartel, desenfocado (así el cartel se ve entero, sin recortes). */
+.ev-hero-bg { position: absolute; inset: -40px; background-size: cover; background-position: center; filter: blur(40px) saturate(1.2); opacity: var(--hero-blur-opacity); z-index: -1; }
+.ev-hero-bg::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 30%, var(--bg) 100%); }
+.ev-poster { width: 100%; max-height: 380px; object-fit: contain; border-radius: 10px; box-shadow: var(--poster-shadow); }
+.ev-kicker { display: flex; gap: 12px; align-items: center; font-size: 12px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+.ev-title { font-size: clamp(28px, 4.2vw, 46px); line-height: 1.05; margin: 8px 0 10px; letter-spacing: -0.5px; }
+.ev-summary { color: var(--muted); font-size: 17px; margin: 0 0 18px; }
+.ev-facts { display: grid; gap: 8px; font-size: 15px; }
+.ev-fact { display: flex; gap: 10px; align-items: flex-start; }
+.ev-fact svg { flex: none; margin-top: 2px; color: var(--accent); }
+.ev-fact small { color: var(--muted); font-size: 14px; }
+.ev-actions { display: flex; gap: 8px; margin-top: 18px; flex-wrap: wrap; }
+.chip-btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--chip-bg); color: var(--text); font-size: 13px; cursor: pointer; text-decoration: none; }
+.chip-btn:hover { border-color: var(--muted); }
+.live { font-size: 12px; color: var(--faint); text-transform: none; letter-spacing: 0; font-weight: 500; }
+.live.on { color: var(--ok); }
+
+/* Rejilla: información en el centro, compra fija a la derecha. */
+.ev-grid {
+  display: grid; gap: 28px; align-items: start;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  grid-template-areas: "map side" "info side";
+}
+.ev-grid.no-map { grid-template-areas: "info side"; }
+.ev-map { grid-area: map; }
+.ev-info { grid-area: info; display: grid; gap: 28px; }
+.ev-side { grid-area: side; grid-row: 1 / span 2; position: sticky; top: 16px; }
+.ev-grid.no-map .ev-side { grid-row: 1; }
+
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; display: grid; gap: 14px; box-shadow: var(--shadow); }
+.panel h2 { font-size: 18px; margin: 0; }
+.panel-steps { display: flex; gap: 6px; font-size: 12px; color: var(--faint); }
+.panel-steps span.on { color: var(--text); font-weight: 600; }
+.total-row { display: flex; justify-content: space-between; align-items: baseline; padding-top: 12px; border-top: 1px solid var(--border); }
+.total-row strong { font-size: 22px; }
+.total-row s { color: var(--faint); font-size: 14px; margin-right: 6px; }
+
+.btn-primary { width: 100%; padding: 14px 18px; border-radius: 10px; border: none; background: var(--accent); color: var(--accent-ink); font-size: 16px; font-weight: 700; cursor: pointer; }
+.btn-primary:disabled { background: var(--surface-2); color: var(--faint); cursor: not-allowed; }
+.btn-link { background: none; border: none; color: var(--accent); cursor: pointer; padding: 0; font-size: 14px; }
+
+.section h2 { font-size: 20px; margin: 0 0 12px; }
+.prose { white-space: pre-wrap; line-height: 1.65; color: var(--text); margin: 0; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
+.card p + p { margin-top: 2px; }
+.card h3 { display: flex; align-items: center; gap: 8px; font-size: 14px; margin: 0 0 6px; color: var(--muted); font-weight: 600; }
+.card h3 svg { color: var(--accent); }
+.card p { margin: 0; font-size: 15px; }
+.notice { padding: 12px 14px; border-radius: 10px; font-size: 14px; }
+.notice.warn { background: var(--warn-bg); color: var(--warn-text); }
+.notice.error { background: color-mix(in srgb, var(--danger) 10%, transparent); color: var(--danger); }
+
+/* Barra fija de compra en el móvil (solo cuando la caja de compra no está a la vista). */
+.mobile-bar { display: none; }
+
+@media (max-width: 900px) {
+  .page-wide { padding-top: 16px; }
+  .ev-hero { grid-template-columns: 1fr; padding: 18px; gap: 18px; margin-bottom: 20px; }
+  .ev-poster { max-height: 300px; margin: 0 auto; }
+  .ev-grid, .ev-grid.no-map { grid-template-columns: minmax(0, 1fr); grid-template-areas: "map" "side" "info"; gap: 20px; }
+  .ev-grid.no-map { grid-template-areas: "side" "info"; }
+  .ev-side, .ev-grid.no-map .ev-side { position: static; grid-row: auto; }
+  .mobile-bar {
+    display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; gap: 12px; align-items: center;
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); background: var(--bar-bg); border-top: 1px solid var(--border);
+    backdrop-filter: blur(8px);
+  }
+  .mobile-bar.hidden { display: none; }
+  .mobile-bar .btn-primary { width: auto; flex: none; padding: 12px 20px; }
+}

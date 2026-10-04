@@ -45,10 +45,10 @@ export default function AttendeesForm({
   const canCopy = fields.some((f) => f.presetKey === "name" || f.presetKey === "email");
 
   return (
-    <form onSubmit={submit} style={{ margin: "16px 0", display: "grid", gap: 14 }}>
+    <form onSubmit={submit} style={{ display: "grid", gap: 14 }}>
       <div>
         <h2 style={{ fontSize: 18, margin: "0 0 4px" }}>Datos de los asistentes</h2>
-        <p style={{ fontSize: 14, color: "#9aa3b2", margin: 0 }}>
+        <p style={{ fontSize: 14, color: "var(--muted)", margin: 0 }}>
           El organizador pide estos datos para cada entrada. Los campos con * son obligatorios.
         </p>
       </div>
@@ -59,20 +59,20 @@ export default function AttendeesForm({
         return (
           <fieldset
             key={s.seatId}
-            style={{ border: "1px solid #232833", borderRadius: 10, padding: 16, background: "#171a21", margin: 0 }}
+            style={{ border: "1px solid var(--border)", borderRadius: 10, padding: 14, background: "transparent", margin: 0 }}
           >
             <legend style={{ padding: "0 6px", fontWeight: 600 }}>
               Entrada {i + 1} · {s.label}
             </legend>
             {seatFields.length === 0 ? (
-              <p style={{ fontSize: 13, color: "#7a8190", margin: 0 }}>Esta entrada no requiere datos.</p>
+              <p style={{ fontSize: 13, color: "var(--faint)", margin: 0 }}>Esta entrada no requiere datos.</p>
             ) : (
               <div style={{ display: "grid", gap: 12 }}>
                 {i === 0 && canCopy && (buyer.name || buyer.email) && (
                   <button
                     type="button"
                     onClick={() => useMine(s.seatId, seatFields)}
-                    style={{ justifySelf: "start", background: "none", border: "none", color: "#5b9dff", cursor: "pointer", padding: 0, fontSize: 13 }}
+                    style={{ justifySelf: "start", background: "none", border: "none", color: "var(--accent)", cursor: "pointer", padding: 0, fontSize: 13 }}
                   >
                     Esta entrada es para mí (usar mis datos)
                   </button>
@@ -86,21 +86,9 @@ export default function AttendeesForm({
         );
       })}
 
-      {error && <p style={{ color: "#ff6b6b", margin: 0 }}>{error}</p>}
-      <button
-        disabled={busy}
-        style={{
-          justifySelf: "end",
-          padding: "12px 24px",
-          borderRadius: 8,
-          border: "none",
-          background: "#5b9dff",
-          color: "#fff",
-          fontSize: 16,
-          cursor: busy ? "wait" : "pointer",
-        }}
-      >
-        {busy ? "Procesando…" : "Continuar"}
+      {error && <div className="notice error">{error}</div>}
+      <button className="btn-primary" disabled={busy}>
+        {busy ? "Procesando…" : "Continuar al pago"}
       </button>
     </form>
   );
@@ -118,10 +106,10 @@ function Field({
   const label = (
     <>
       {f.label}
-      {f.required && <span style={{ color: "#ff6b6b" }}> *</span>}
+      {f.required && <span style={{ color: "var(--danger)" }}> *</span>}
     </>
   );
-  const help = f.helpText && <span style={{ display: "block", fontSize: 12, color: "#7a8190", marginTop: 4 }}>{f.helpText}</span>;
+  const help = f.helpText && <span style={{ display: "block", fontSize: 12, color: "var(--faint)", marginTop: 4 }}>{f.helpText}</span>;
 
   if (f.type === "checkbox") {
     return (

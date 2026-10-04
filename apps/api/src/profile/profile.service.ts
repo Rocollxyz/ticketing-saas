@@ -35,6 +35,7 @@ export class ProfileService {
       logoUrl: input.url(body.logoUrl, "Logo"),
       coverUrl: input.url(body.coverUrl, "Imagen de portada"),
       accentColor: input.hexColor(body.accentColor, "Color de marca"),
+      shopTheme: input.oneOf(body.shopTheme, "Tema de la tienda", ["light", "dark"] as const),
       city: input.text(body.city, "Ciudad", 100),
       contactEmail: input.email(body.contactEmail, "Email de contacto"),
       phone: input.text(body.phone, "Teléfono", 40),

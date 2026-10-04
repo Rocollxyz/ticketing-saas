@@ -98,7 +98,14 @@ export interface EventDetail {
   paymentMethods?: PaymentMethod[];
   /** Hay códigos de descuento activos: se muestra la casilla para escribirlo. */
   couponsAvailable?: boolean;
-  organizer: { name: string; slug: string; logoUrl: string | null; accentColor: string | null } | null;
+  organizer: {
+    name: string;
+    slug: string;
+    logoUrl: string | null;
+    accentColor: string | null;
+    /** Tema elegido por el promotor. */
+    theme?: ShopTheme | null;
+  } | null;
   event: {
     id: string;
     name: string;
@@ -146,6 +153,8 @@ export interface Profile {
   tiktok: string | null;
   x: string | null;
   youtube: string | null;
+  /** Tema elegido por el promotor. */
+  theme?: ShopTheme | null;
 }
 
 export interface PastEvent {
@@ -173,7 +182,21 @@ export async function fetchPastEvents(slug: string): Promise<PastEvent[]> {
 
 /** Color de marca del promotor (o el azul por defecto). */
 export const accentOf = (p: { accentColor: string | null } | null | undefined) =>
-  p?.accentColor && /^#[0-9a-f]{6}$/i.test(p.accentColor) ? p.accentColor : "#5b9dff";
+  p?.accentColor && /^#[0-9a-f]{6}$/i.test(p.accentColor) ? p.accentColor : "#2563eb";
+
+export type ShopTheme = "light" | "dark";
+
+/** Tema de la tienda de un promotor (lo elige en su perfil de la consola; claro por defecto). */
+export const themeOf = (p: { theme?: ShopTheme | null } | null | undefined): ShopTheme =>
+  p?.theme === "dark" ? "dark" : "light";
+
+/** Texto legible sobre un color de fondo (#rrggbb): negro si es claro, blanco si es oscuro. */
+export function inkFor(hex: string): string {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+  const lin = (c: number) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  const lum = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+  return lum > 0.45 ? "#0f1115" : "#ffffff";
+}
 
 export async function fetchEvents(slug: string): Promise<ShopEvent[]> {
   const r = await fetch(`${API_URL}/shop/${slug}/events`, { cache: "no-store" });

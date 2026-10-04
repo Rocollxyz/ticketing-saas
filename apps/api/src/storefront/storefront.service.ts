@@ -24,6 +24,7 @@ const PUBLIC_PROFILE = {
   logoUrl: schema.tenant.logoUrl,
   coverUrl: schema.tenant.coverUrl,
   accentColor: schema.tenant.accentColor,
+  theme: schema.tenant.shopTheme,
   city: schema.tenant.city,
   contactEmail: schema.tenant.contactEmail,
   phone: schema.tenant.phone,
@@ -192,6 +193,7 @@ export class StorefrontService {
             slug: schema.tenant.slug,
             logoUrl: schema.tenant.logoUrl,
             accentColor: schema.tenant.accentColor,
+            theme: schema.tenant.shopTheme,
             privacy: {
               fiscalName: schema.tenant.fiscalName,
               contactEmail: schema.tenant.contactEmail,

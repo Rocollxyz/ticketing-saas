@@ -47,7 +47,7 @@ export default function BillingBox({
   return (
     <div style={{ marginBottom: 16, fontSize: 14 }}>
       {required ? (
-        <p style={{ margin: "0 0 8px", color: "#e0a23c" }}>
+        <p style={{ margin: "0 0 8px", color: "var(--warn)" }}>
           Para compras de más de 400 € la ley exige factura completa: indica tus datos de facturación.
         </p>
       ) : (

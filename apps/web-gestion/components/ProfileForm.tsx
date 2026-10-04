@@ -7,7 +7,7 @@ import ImageField from "./ImageField";
 type Form = Record<Exclude<keyof Profile, "slug">, string>;
 
 const FIELDS = [
-  "name", "tagline", "description", "logoUrl", "coverUrl", "accentColor", "city",
+  "name", "tagline", "description", "logoUrl", "coverUrl", "accentColor", "shopTheme", "city",
   "contactEmail", "phone", "website", "instagram", "facebook", "tiktok", "x", "youtube",
 ] as const;
 
@@ -160,6 +160,14 @@ export default function ProfileForm({ token }: { token: string }) {
               />
             </span>
             <span className="hint">Botones y enlaces de tu página.</span>
+          </label>
+          <label className="field">
+            Tema de la tienda
+            <select className="select" value={f.shopTheme || "light"} onChange={(e) => set("shopTheme", e.target.value)}>
+              <option value="light">Claro</option>
+              <option value="dark">Oscuro</option>
+            </select>
+            <span className="hint">Fondo de tu página y de la de tus eventos. Oscuro: salas, clubs, música electrónica.</span>
           </label>
           <label className="field">
             Ciudad

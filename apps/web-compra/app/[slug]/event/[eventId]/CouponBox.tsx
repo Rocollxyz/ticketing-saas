@@ -31,7 +31,7 @@ export default function CouponBox({
 
   if (applied) {
     return (
-      <p style={{ fontSize: 14, margin: "0 0 12px", color: "#3ecf8e" }}>
+      <p style={{ fontSize: 14, margin: "0 0 12px", color: "var(--ok)" }}>
         Código <strong>{applied.code}</strong> aplicado.{" "}
         <button onClick={onRemove} style={linkStyle}>
           Quitar
@@ -76,17 +76,17 @@ export default function CouponBox({
             marginTop: 6,
             padding: "0 16px",
             borderRadius: 8,
-            border: "1px solid #2b313c",
-            background: "#1d2b45",
-            color: "#e9edf2",
+            border: "1px solid var(--border)",
+            background: "var(--selected)",
+            color: "var(--text)",
             cursor: busy || disabled ? "not-allowed" : "pointer",
           }}
         >
           {busy ? "…" : "Aplicar"}
         </button>
       </div>
-      {disabled && <span style={{ color: "#7a8190", fontSize: 13 }}>Elige primero tus entradas.</span>}
-      {error && <span style={{ color: "#ff6b6b", fontSize: 13 }}>{error}</span>}
+      {disabled && <span style={{ color: "var(--faint)", fontSize: 13 }}>Elige primero tus entradas.</span>}
+      {error && <span style={{ color: "var(--danger)", fontSize: 13 }}>{error}</span>}
     </form>
   );
 }
@@ -95,7 +95,7 @@ const linkStyle: React.CSSProperties = {
   background: "none",
   border: "none",
   padding: 0,
-  color: "#5b9dff",
+  color: "var(--accent)",
   cursor: "pointer",
   fontSize: 14,
 };

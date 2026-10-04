@@ -97,9 +97,9 @@ export default function EventsBrowser({
                 minWidth: 200,
                 padding: "10px 12px",
                 borderRadius: 8,
-                border: "1px solid #2b313c",
-                background: "#171a21",
-                color: "#e9edf2",
+                border: "1px solid var(--border)",
+                background: "var(--surface)",
+                color: "var(--text)",
                 fontSize: 15,
               }}
             />
@@ -110,9 +110,9 @@ export default function EventsBrowser({
               style={{
                 padding: "10px 12px",
                 borderRadius: 8,
-                border: "1px solid #2b313c",
-                background: "#171a21",
-                color: "#e9edf2",
+                border: "1px solid var(--border)",
+                background: "var(--surface)",
+                color: "var(--text)",
                 fontSize: 15,
               }}
             >
@@ -178,12 +178,12 @@ export default function EventsBrowser({
             style={{
               display: "flex",
               gap: 16,
-              background: "#171a21",
+              background: "var(--surface)",
               borderRadius: 12,
               overflow: "hidden",
               color: "inherit",
               textDecoration: "none",
-              border: "1px solid #232833",
+              border: "1px solid var(--border)",
             }}
           >
             <div
@@ -191,7 +191,7 @@ export default function EventsBrowser({
                 width: 150,
                 minHeight: 110,
                 flexShrink: 0,
-                background: e.imageUrl ? `center/cover url("${e.imageUrl}")` : `linear-gradient(135deg, ${accent}44, #161d27)`,
+                background: e.imageUrl ? `center/cover url("${e.imageUrl}")` : `linear-gradient(135deg, ${accent}44, var(--stage-to))`,
               }}
             />
             <div style={{ padding: "14px 16px 14px 0", display: "grid", gap: 4, alignContent: "center" }}>
@@ -204,9 +204,9 @@ export default function EventsBrowser({
               <span style={{ fontSize: 13, opacity: 0.7 }}>{[e.venueName, e.venueCity].filter(Boolean).join(" · ")}</span>
               <span style={{ fontSize: 14, fontWeight: 600, marginTop: 2 }}>
                 {e.soldOut ? (
-                  <span style={{ color: "#ff6b6b" }}>Agotado</span>
+                  <span style={{ color: "var(--danger)" }}>Agotado</span>
                 ) : !e.salesOpen ? (
-                  <span style={{ color: "#e0a23c" }}>{e.salesMessage}</span>
+                  <span style={{ color: "var(--warn)" }}>{e.salesMessage}</span>
                 ) : e.allFree ? (
                   "Gratis"
                 ) : e.fromCents != null ? (
@@ -225,12 +225,12 @@ export default function EventsBrowser({
             {past.map((e) => (
               <div
                 key={e.id}
-                style={{ background: "#13161c", borderRadius: 10, overflow: "hidden", border: "1px solid #1f2530", opacity: 0.75 }}
+                style={{ background: "var(--surface)", borderRadius: 10, overflow: "hidden", border: "1px solid var(--border)", opacity: 0.75 }}
               >
                 <div
                   style={{
                     height: 90,
-                    background: e.imageUrl ? `center/cover url("${e.imageUrl}")` : "linear-gradient(135deg,#23303f,#161d27)",
+                    background: e.imageUrl ? `center/cover url("${e.imageUrl}")` : "linear-gradient(135deg,var(--stage-from),var(--stage-to))",
                     filter: "grayscale(0.6)",
                   }}
                 />
@@ -266,9 +266,9 @@ function Chip({
       style={{
         padding: "6px 12px",
         borderRadius: 999,
-        border: `1px solid ${active ? accent : "#2b313c"}`,
+        border: `1px solid ${active ? accent : "var(--border)"}`,
         background: active ? `${accent}22` : "transparent",
-        color: active ? accent : "#c9d0da",
+        color: active ? accent : "var(--text)",
         cursor: "pointer",
         fontSize: 13,
       }}
