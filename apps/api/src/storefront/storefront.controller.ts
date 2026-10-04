@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Body, Controller, Get, Param, Post } from "@nestjs/common";
+import { RateLimit } from "../security/rate-limit.guard";
 import { StorefrontService } from "./storefront.service";
 
 /**
@@ -36,7 +37,9 @@ export class StorefrontController {
     return this.shop.confirmation(slug, eventId);
   }
 
+  /** Reservar bloquea aforo: sin límite, un bot podría dejar un evento «agotado». */
   @Post("holds")
+  @RateLimit({ name: "shop-hold", limit: 30, windowSec: 600 })
   hold(
     @Param("slug") slug: string,
     @Body()
@@ -59,6 +62,7 @@ export class StorefrontController {
   }
 
   @Post("checkout")
+  @RateLimit({ name: "shop-checkout", limit: 20, windowSec: 600 })
   checkout(
     @Param("slug") slug: string,
     @Body()
@@ -85,13 +89,17 @@ export class StorefrontController {
    * Vuelta desde la pasarela por redirección (Redsys) con el resultado firmado
    * ({ Ds_SignatureVersion, Ds_MerchantParameters, Ds_Signature }). Devuelve el estado.
    */
+  // Sin límite por IP: la llama el SERVIDOR de la tienda (todos los compradores tendrían la
+  // misma IP). La protege la firma de Redsys y es idempotente.
   @Post("orders/:orderId/confirm-return")
   confirmReturn(@Param("slug") slug: string, @Param("orderId") orderId: string, @Body() body: Record<string, unknown>) {
     return this.shop.confirmReturn(slug, orderId, body ?? {});
   }
 
   /** Comprueba un código de descuento: { eventId, seatIds | quantities, code }. */
+  /** Evita adivinar códigos de descuento probando. */
   @Post("coupons/quote")
+  @RateLimit({ name: "shop-coupon", limit: 15, windowSec: 600 })
   quoteCoupon(
     @Param("slug") slug: string,
     @Body() body: { eventId?: string; seatIds?: unknown; quantities?: unknown; code?: unknown },

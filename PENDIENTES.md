@@ -86,16 +86,15 @@ directorio de promotores en la portada `/` (hoy es una demo fija).
 - **Imágenes**: las sustituidas no se borran (huérfanas); falta adaptador S3/R2 para producción.
 
 ### Seguridad y RGPD (ver SECURITY_AUDIT.md)
-- 🟠 **H4 RGPD**: texto legal y consentimiento en el formulario, plazo de conservación y
-  borrado tras el evento, derechos de acceso/supresión; borrar `hold_seat.attendee` de
-  reservas no pagadas.
-- 🟠 **A2**: test automático que falle si una tabla con `tenant_id` no tiene RLS + CI.
-- 🟠 **E1/G1**: la clave que firma los QR se guarda en claro y la app de acceso la descarga
-  (cifrado en reposo, rotación, clave por dispositivo).
+- ✅ Hecho (2026-10-04): límite de peticiones (I1), test anti-fuga RLS + CI (A2), clave de
+  QR cifrada en reposo (E1), health check real (D5), RGPD básico (H4: aviso al comprar,
+  borrado automático, acceso y supresión en la consola «Privacidad»).
+- 🟠 **G1**: la app de acceso descarga la clave de firma descifrada (clave por dispositivo,
+  rotación).
+- 🟡 **H4 resto**: contrato de encargo del tratamiento con cada promotor, registro de
+  actividades y conservación de `order.buyer_email`.
 - 🟡 **C2**: validación de entrada en el resto de la API (la gestión de eventos ya valida).
-- 🟢 **D5**: health check que compruebe Postgres y Redis.
-- 🟠 **Límite de peticiones** (no hay ninguno en la API): sobre todo en el login y en
-  `shop/:slug/coupons/quote`, que permitiría probar códigos de descuento a fuerza bruta.
+- **MASTER_KEY**: guardarla a salvo; si se pierde, los QR emitidos dejan de validar.
 
 ### Paso a producción (sin decidir)
 - Sistema propio de despliegue: hosting, dominios, CI/CD, secretos, copias de seguridad
@@ -126,7 +125,8 @@ directorio de promotores en la portada `/` (hoy es una demo fija).
 ## Coordinación entre líneas
 - `main` nunca recibe trabajo a medias de Darrian/Raquel; se integrarán cuando estén
   maduras (decisión aparte).
-- La BD es compartida y ya tiene la migración **0014** (facturación; 0013 reembolsos, 0012
-  cupones, 0011 datos de asistentes). Para que
+- La BD es compartida y ya tiene la migración **0015** (RGPD; 0014 facturación, 0013
+  reembolsos, 0012 cupones, 0011 datos de asistentes). Las claves de QR están cifradas:
+  las ventanas de Darrian/Raquel necesitan la misma `MASTER_KEY` en su `.env`. Para que
   Darrian/Raquel tengan el código al día: en su ventana, «trae los cambios de main»
   (`git merge main`).

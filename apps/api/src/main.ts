@@ -11,6 +11,11 @@ async function bootstrap() {
   // rawBody: true expone req.rawBody para verificar la firma de los webhooks de pago.
   const app = await NestFactory.create(AppModule, { rawBody: true });
   app.enableShutdownHooks(); // cierra pools de Postgres limpiamente (D1 auditoría)
+  // Detrás de un proxy/balanceador, la IP real del cliente viene en X-Forwarded-For
+  // (la usan los límites de peticiones). TRUST_PROXY = nº de saltos de confianza.
+  if (process.env.TRUST_PROXY) {
+    app.getHttpAdapter().getInstance().set("trust proxy", Number(process.env.TRUST_PROXY) || process.env.TRUST_PROXY);
+  }
   // CORS: en dev refleja cualquier origen (localhost/127.0.0.1/IP de red) para no
   // bloquear la web de compra según cómo se abra. En prod, restringir a WEB_ORIGIN
   // (dominios reales de las tiendas).

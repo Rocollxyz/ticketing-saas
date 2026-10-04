@@ -84,6 +84,14 @@ export type PaymentMethod = "card" | "bizum";
 
 export interface EventDetail {
   attendeeFields: AttendeeFieldPublic[];
+  /** Información de protección de datos (art. 13 RGPD) que se muestra al comprar. */
+  privacy?: {
+    controller: string;
+    contactEmail: string | null;
+    privacyUrl: string | null;
+    termsUrl: string | null;
+    retentionDays: number;
+  };
   /** Cómo se puede pagar (según las pasarelas activas). */
   paymentMethods?: PaymentMethod[];
   /** Hay códigos de descuento activos: se muestra la casilla para escribirlo. */

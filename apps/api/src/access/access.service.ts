@@ -3,6 +3,7 @@ import { verifyTicketQr } from "@ticketing/crypto";
 import { schema } from "@ticketing/database";
 import { and, asc, eq } from "drizzle-orm";
 import { seatLabel } from "../catalog/seat-label";
+import { open as openSecret } from "../security/secret-box";
 import { getStore } from "../database/tenant-context";
 import { TenantDb } from "../database/tenant-db.service";
 
@@ -73,7 +74,7 @@ export class AccessService {
       .where(eq(schema.eventSigningKey.eventId, eventId));
     if (!key) return { result: "INVALID", reason: "Evento desconocido" };
 
-    const payload = verifyTicketQr(token, key.k);
+    const payload = verifyTicketQr(token, openSecret(key.k));
     if (!payload || payload.e !== eventId) {
       return { result: "INVALID", reason: "Firma inválida" };
     }
@@ -182,7 +183,7 @@ export class AccessService {
         // NOTA seguridad: se entrega la clave de firma al dispositivo para validar
         // offline (relacionado con E1: hoy va en claro). Mitigación futura: rotación
         // por evento + clave derivada por dispositivo.
-        key: key?.k ?? null,
+        key: key ? openSecret(key.k) : null,
         generatedAt: new Date().toISOString(),
         tickets: tickets.map((t) => ({ id: t.id, status: t.status, seat: seatLabel(t), attendee: t.attendeeName })),
       };

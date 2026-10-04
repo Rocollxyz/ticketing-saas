@@ -238,6 +238,9 @@ export interface Profile {
   fiscalCity: string | null;
   fiscalProvince: string | null;
   taxRegime: "IVA" | "IGIC";
+  privacyUrl: string | null;
+  termsUrl: string | null;
+  attendeeRetentionDays: number;
 }
 
 export const getProfile = (token: string) => authed<Profile>(token, "/profile");
@@ -541,6 +544,36 @@ export const downloadInvoicePdf = (token: string, id: string) =>
 
 export const downloadInvoiceBook = (token: string, from?: string, to?: string) =>
   downloadFile(token, `/invoices/export.csv${rangeQuery(from, to)}`, "libro-facturas.csv");
+
+export interface PersonalData {
+  email: string;
+  generatedAt: string;
+  orders: {
+    id: string;
+    status: string;
+    createdAt: string;
+    buyerEmail: string | null;
+    buyerName: string | null;
+    billing: BillingData | null;
+    anonymizedAt: string | null;
+    eventName: string;
+    eventStartsAt: string | null;
+    tickets: { id: string; status: string; seat: string; attendee: AttendeeAnswer[] }[];
+    invoices: { fullNumber: string; customer: BillingData | null }[];
+  }[];
+}
+
+export const searchPersonalData = (token: string, email: string) =>
+  authed<PersonalData>(token, `/privacy/search?email=${encodeURIComponent(email)}`);
+
+export const exportPersonalData = (token: string, email: string) =>
+  downloadFile(token, `/privacy/export?email=${encodeURIComponent(email)}`, "datos-personales.json");
+
+export const erasePersonalData = (token: string, email: string) =>
+  authed<{ orders: number; tickets: number }>(token, "/privacy/erase", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
 
 export type ImageKind = "event" | "cover" | "logo";
 

@@ -21,6 +21,8 @@ export const order = pgTable(
     couponId: uuid("coupon_id"),
     // Datos para factura COMPLETA (empresa/autónomo, u obligatoria si pasa de 400 €).
     billing: jsonb("billing").$type<BillingData>(),
+    // RGPD: datos del comprador suprimidos a petición (el pedido se conserva por contabilidad).
+    anonymizedAt: timestamp("anonymized_at", { withTimezone: true }),
     discountCents: bigint("discount_cents", { mode: "bigint" }).notNull().default(sql`0`),
     ...timestamps,
   },

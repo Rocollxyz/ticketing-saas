@@ -7,6 +7,7 @@ import { attendeeNameOf } from "../catalog/attendee";
 import { seatTaken } from "../catalog/pricing";
 import { eventSalesState, SALES_REASON_TEXT, ticketTypeSalesState } from "../catalog/sales-rules";
 import { getStore } from "../database/tenant-context";
+import { open as openSecret, seal } from "../security/secret-box";
 import { TenantDb } from "../database/tenant-db.service";
 import { SEATS_HELD, type SeatsHeldEvent } from "../realtime/seat-events";
 
@@ -449,14 +450,12 @@ export class ReservationService {
       .where(eq(schema.eventSigningKey.eventId, eventId))
       .limit(1);
     if (existing) {
-      // NOTA seguridad: encryptedKey se guarda en claro de momento (cifrado en
-      // reposo pendiente — ver SECURITY_AUDIT.md).
-      return { id: existing.id, key: existing.encryptedKey };
+      return { id: existing.id, key: openSecret(existing.encryptedKey) };
     }
     const key = generateSigningKey();
     const [created] = await tx
       .insert(schema.eventSigningKey)
-      .values({ tenantId, eventId, encryptedKey: key })
+      .values({ tenantId, eventId, encryptedKey: seal(key) }) // cifrada en reposo (E1)
       .returning();
     return { id: created.id, key };
   }

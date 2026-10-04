@@ -1,4 +1,4 @@
-import { boolean, pgTable, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { boolean, integer, pgTable, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { membershipRole, pk, timestamps } from "./_shared";
 
 /**
@@ -35,6 +35,12 @@ export const tenant = pgTable("tenant", {
   fiscalProvince: text("fiscal_province"),
   // IVA (península y Baleares) o IGIC (Canarias). Cambia el nombre del impuesto.
   taxRegime: text("tax_regime").notNull().default("IVA"),
+  // RGPD: el promotor es el RESPONSABLE de los datos de sus compradores (la plataforma,
+  // encargada). Enlaces que se muestran al comprar y plazo de conservación de los datos
+  // de asistentes tras el evento.
+  privacyUrl: text("privacy_url"),
+  termsUrl: text("terms_url"),
+  attendeeRetentionDays: integer("attendee_retention_days").notNull().default(365),
   ...timestamps,
 });
 

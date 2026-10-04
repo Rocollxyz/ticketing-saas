@@ -14,8 +14,10 @@ import { OutboxModule } from "./outbox/outbox.module";
 import { PaymentsModule } from "./payments/payments.module";
 import { PlatformModule } from "./platform/platform.module";
 import { PosModule } from "./pos/pos.module";
+import { PrivacyModule } from "./privacy/privacy.module";
 import { ProfileModule } from "./profile/profile.module";
 import { RealtimeModule } from "./realtime/realtime.module";
+import { SecurityModule } from "./security/security.module";
 import { ReservationModule } from "./reservation/reservation.module";
 import { SeatmapModule } from "./seatmap/seatmap.module";
 import { StorefrontModule } from "./storefront/storefront.module";
@@ -29,12 +31,14 @@ import { UploadsModule } from "./uploads/uploads.module";
     // Tareas programadas (sweeper de holds expirados).
     ScheduleModule.forRoot(),
     DatabaseModule,
+    SecurityModule,
     PaymentsModule,
     AuthModule,
     EventsModule,
     TicketsModule,
     CouponsModule,
     BillingModule,
+    PrivacyModule,
     ReservationModule,
     CheckoutModule,
     StorefrontModule,

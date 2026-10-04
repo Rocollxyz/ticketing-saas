@@ -7,6 +7,7 @@ import { formatInZone } from "../catalog/format";
 import { currentPriceCents } from "../catalog/pricing";
 import { seatLabel } from "../catalog/seat-label";
 import { AdminDb } from "../database/admin-db.service";
+import { open as openSecret } from "../security/secret-box";
 import { EMAIL_PROVIDER, type EmailAttachment, type EmailProvider } from "./email-provider";
 import { InvoiceJobsService } from "./invoice-jobs.service";
 import { RefundProcessorService } from "./refund-processor.service";
@@ -128,6 +129,7 @@ export class OutboxWorkerService {
       .from(schema.eventSigningKey)
       .where(eq(schema.eventSigningKey.eventId, order.eventId));
     if (!key) throw new Error(`evento ${order.eventId} sin clave de firma`);
+    const signingKey = openSecret(key.k);
 
     const tickets = await this.admin.db
       .select({
@@ -156,7 +158,7 @@ export class OutboxWorkerService {
 
     const attachments: EmailAttachment[] = [];
     for (const t of tickets) {
-      const qr = signTicketQr({ t: t.id, e: order.eventId }, key.k);
+      const qr = signTicketQr({ t: t.id, e: order.eventId }, signingKey);
       const label = seatLabel(t);
       const content = await this.pdf.render({
         ticketId: t.id,

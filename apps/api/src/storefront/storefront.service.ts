@@ -186,12 +186,19 @@ export class StorefrontService {
   getEvent(slug: string, eventId: string) {
     return this.withTenant(slug, () =>
       this.db.run(async (tx) => {
-        const [organizer] = await tx
+        const [{ privacy: priv, ...organizer }] = await tx
           .select({
             name: schema.tenant.name,
             slug: schema.tenant.slug,
             logoUrl: schema.tenant.logoUrl,
             accentColor: schema.tenant.accentColor,
+            privacy: {
+              fiscalName: schema.tenant.fiscalName,
+              contactEmail: schema.tenant.contactEmail,
+              privacyUrl: schema.tenant.privacyUrl,
+              termsUrl: schema.tenant.termsUrl,
+              retentionDays: schema.tenant.attendeeRetentionDays,
+            },
           })
           .from(schema.tenant);
         const [row] = await tx
@@ -255,6 +262,14 @@ export class StorefrontService {
 
         return {
           organizer: organizer ?? null,
+          // Información de protección de datos que se muestra al comprar (art. 13 RGPD).
+          privacy: {
+            controller: priv.fiscalName ?? organizer.name,
+            contactEmail: priv.contactEmail ?? row.ev.contactEmail,
+            privacyUrl: priv.privacyUrl,
+            termsUrl: priv.termsUrl,
+            retentionDays: priv.retentionDays,
+          },
           event: {
             id: ev.id,
             name: ev.name,

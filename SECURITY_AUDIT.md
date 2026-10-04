@@ -87,7 +87,13 @@ HTTP en las tablas con RLS.
 
 ## Categoría 1 — Pendiente conocido (no son defectos; ya en el roadmap)
 
-### A2 — No hay test automático anti-fuga ni CI 🟠
+### A2 — No hay test automático anti-fuga ni CI ✅ RESUELTO (2026-10-04)
+- **Corregido**: `packages/database/test/rls.test.mjs` (`npm run test:rls`) falla si una tabla
+  con `tenant_id` no tiene RLS ENABLE+FORCE y política, si aparece una tabla sin `tenant_id`
+  que no esté en la lista de globales, si `app_user` ve filas con un tenant inventado o sin
+  tenant, o si puede escribir a nombre de otro tenant. Comprobado que detecta un FORCE
+  quitado. CI en `.github/workflows/ci.yml` (tipos + este test sobre BD recién migrada);
+  se activa al subir el repositorio.
 - §7 exige "tests automáticos anti-fuga". El test A↔B fue manual y se borró.
 - **Riesgo estructural**: RLS es opt-in por tabla; cualquier tabla con `tenant_id`
   añadida en una migración futura **nace sin RLS** (fuga silenciosa) y nada lo
@@ -127,7 +133,9 @@ HTTP en las tablas con RLS.
 - `onModuleDestroy` no dispara en SIGINT → pool de Postgres no cierra limpio.
 - **Fase**: endurecimiento pre-despliegue.
 
-### D5 — Health check superficial 🟢
+### D5 — Health check superficial ✅ RESUELTO (2026-10-04)
+- `/health` comprueba Postgres (503 si cae → el balanceador saca la réplica) y Redis
+  («degraded» con 200: la API sigue funcionando sin él).
 - Devuelve `ok` sin comprobar Postgres/Redis.
 - **Fase**: observabilidad / pre-despliegue.
 
@@ -135,7 +143,10 @@ HTTP en las tablas con RLS.
 
 ## Addendum Fase 1 (motor de reserva) — 2026-06-25
 
-### E1 — `event_signing_key.encrypted_key` se guarda EN CLARO 🟠
+### E1 — `event_signing_key.encrypted_key` se guarda EN CLARO ✅ RESUELTO (2026-10-04)
+- **Corregido**: AES-256-GCM con `MASTER_KEY` (fuera de la BD; en prod, gestor de
+  secretos). Las claves antiguas se cifran solas al arrancar. Si se pierde la MASTER_KEY, los
+  QR emitidos dejan de validar. Sigue abierto G1 (la clave viaja descifrada al dispositivo).
 - La columna se llama `encrypted_key` pero `getOrCreateEventKey` guarda la clave de
   firma de QR en base64 sin cifrar. Quien lea esa fila puede falsificar QR de ese
   evento.
@@ -227,7 +238,14 @@ HTTP en las tablas con RLS.
 - ⚠️ Pendiente: `order.refund_required` aún solo se registra (el worker lo marca como
   desconocido); falta el reembolso automático por la pasarela.
 
-### H4 — Datos personales de asistentes (RGPD) 🟠 PENDIENTE (2026-10-03)
+### H4 — Datos personales de asistentes (RGPD) 🟡 MAYORMENTE RESUELTO (2026-10-04)
+- **Hecho**: información del art. 13 al comprar (responsable = promotor, finalidad, plazo,
+  contacto para derechos, enlaces a privacidad y condiciones); borrado automático de datos de
+  asistentes de reservas no pagadas (24 h) y de entradas N días tras el evento (por promotor,
+  365 por defecto); consola «Privacidad»: acceso (exportar JSON) y supresión por email, con
+  constancia en audit_log sin el email en claro. Las facturas se conservan (obligación legal).
+- **Falta**: contrato de encargo del tratamiento plataforma↔promotor (art. 28), registro de
+  actividades, y decidir conservación de `order.buyer_email` (hoy indefinida).
 - Desde la migración `0011` cada entrada puede guardar datos del asistente que pida el
   promotor (`ticket.attendee`, `hold_seat.attendee`): nombre, email, teléfono, **DNI/NIE**,
   fecha de nacimiento… Protegidos por RLS como el resto (cada promotor solo ve los suyos).
@@ -236,6 +254,15 @@ HTTP en las tablas con RLS.
   conservación** y borrado/anonimización tras el evento, y atender derechos de acceso y
   supresión. Los datos de reservas que no llegan a pagarse (`hold_seat.attendee`) deberían
   borrarse al liberar la reserva.
+
+## Addendum seguridad — 2026-10-04
+
+### I1 — Sin límite de peticiones ✅ RESUELTO
+- Guard global `RateLimitGuard` con contadores en Redis (en memoria si cae): login 10/15 min
+  por cuenta y 50 por IP; reservas 30/10 min, checkout 20/10 min y códigos de descuento
+  15/10 min por IP. 429 con Retry-After. Detrás de un proxy, `TRUST_PROXY` para la IP real.
+- Las rutas que llama el SERVIDOR de la tienda (no el navegador) no se limitan por IP (todos
+  los compradores compartirían la del servidor): `confirm-return` se apoya en la firma.
 
 ## Categoría 3 — Anotar y olvidar
 

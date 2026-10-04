@@ -52,6 +52,11 @@ export class ProfileService {
       fiscalCity: input.text(body.fiscalCity, "Población", 100),
       fiscalProvince: input.text(body.fiscalProvince, "Provincia", 100),
       taxRegime: input.oneOf(body.taxRegime, "Impuesto", ["IVA", "IGIC"] as const),
+      // RGPD: enlaces que ve el comprador y conservación de los datos de asistentes.
+      privacyUrl: input.url(body.privacyUrl, "Política de privacidad"),
+      termsUrl: input.url(body.termsUrl, "Condiciones de compra"),
+      attendeeRetentionDays:
+        input.int(body.attendeeRetentionDays, "Conservación de datos de asistentes", 30, 3_650, false) ?? undefined,
     });
     return this.db.run(async (tx) => {
       const [t] = await tx

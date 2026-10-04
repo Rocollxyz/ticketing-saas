@@ -1,0 +1,41 @@
+# CI: tipos de todo el monorepo + test anti-fuga entre promotores (RLS) sobre una BD
+# recién migrada. Se activa al subir el repositorio a GitHub.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: ticketing
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d ticketing"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/ticketing
+      DATABASE_URL_APP: postgres://app_user:app_user_dev@localhost:5432/ticketing
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Migraciones
+        run: npx drizzle-kit migrate
+        working-directory: packages/database
+      - name: Login de app_user (solo CI)
+        run: psql "$DATABASE_URL" -f scripts/dev-app-user-login.sql
+      - name: Tipos
+        run: npm run typecheck
+      - name: Aislamiento entre promotores (RLS)
+        run: npm run test:rls

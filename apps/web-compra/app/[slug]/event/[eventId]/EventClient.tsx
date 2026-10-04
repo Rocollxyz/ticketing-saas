@@ -574,6 +574,8 @@ export default function EventClient({ slug, detail: initial }: { slug: string; d
         </>
       )}
 
+      {sales.open && !hold && !expired && detail.privacy && <PrivacyNotice p={detail.privacy} />}
+
       {expired && (
         <div style={{ ...card, borderColor: "#e0a23c", margin: "16px 0" }}>
           <strong style={{ color: "#e0a23c" }}>⏱ Se ha agotado el tiempo de reserva</strong>
@@ -885,6 +887,49 @@ function SeatMap({
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * Información básica de protección de datos (art. 13 RGPD) junto al botón de compra:
+ * quién es el responsable, para qué, cuánto tiempo y dónde ejercer los derechos.
+ */
+function PrivacyNotice({ p }: { p: NonNullable<EventDetail["privacy"]> }) {
+  const link = { color: "#9aa3b2", textDecoration: "underline" } as const;
+  return (
+    <p style={{ fontSize: 12, color: "#7a8190", lineHeight: 1.5, margin: "12px 0 0" }}>
+      {p.termsUrl && (
+        <>
+          Al comprar aceptas las{" "}
+          <a href={p.termsUrl} target="_blank" rel="noreferrer" style={link}>
+            condiciones de compra
+          </a>
+          .{" "}
+        </>
+      )}
+      Tus datos los trata <strong>{p.controller}</strong> para gestionar tu compra, enviarte las entradas y controlar el
+      acceso al evento. Los datos de los asistentes se borran {p.retentionDays} días después del evento; los de facturación
+      se conservan lo que exige la ley.
+      {p.contactEmail && (
+        <>
+          {" "}
+          Puedes acceder a tus datos, corregirlos o pedir que se borren escribiendo a{" "}
+          <a href={`mailto:${p.contactEmail}`} style={link}>
+            {p.contactEmail}
+          </a>
+          .
+        </>
+      )}
+      {p.privacyUrl && (
+        <>
+          {" "}
+          <a href={p.privacyUrl} target="_blank" rel="noreferrer" style={link}>
+            Política de privacidad
+          </a>
+          .
+        </>
+      )}
+    </p>
   );
 }
 

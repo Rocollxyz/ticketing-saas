@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import BillingPanel from "../components/BillingPanel";
 import EventEditor from "../components/EventEditor";
 import EventsList from "../components/EventsList";
+import PrivacyPanel from "../components/PrivacyPanel";
 import ProfileForm from "../components/ProfileForm";
 import { login } from "../lib/api";
 
@@ -11,7 +12,7 @@ export default function Page() {
   const [token, setToken] = useState<string | null>(null);
   const [slug, setSlug] = useState("");
   const [eventId, setEventId] = useState<string | null>(null);
-  const [section, setSection] = useState<"events" | "profile" | "billing">("events");
+  const [section, setSection] = useState<"events" | "profile" | "billing" | "privacy">("events");
 
   // Sesión persistida (dev). En producción iría en cookie httpOnly.
   useEffect(() => {
@@ -72,12 +73,17 @@ export default function Page() {
         <button className={`tab ${section === "billing" ? "active" : ""}`} onClick={() => setSection("billing")}>
           Facturación
         </button>
+        <button className={`tab ${section === "privacy" ? "active" : ""}`} onClick={() => setSection("privacy")}>
+          Privacidad
+        </button>
       </nav>
 
       {section === "profile" ? (
         <ProfileForm token={token} />
       ) : section === "billing" ? (
         <BillingPanel token={token} />
+      ) : section === "privacy" ? (
+        <PrivacyPanel token={token} />
       ) : !eventId ? (
         <EventsList token={token} onOpen={setEventId} onAuthError={logout} />
       ) : (
