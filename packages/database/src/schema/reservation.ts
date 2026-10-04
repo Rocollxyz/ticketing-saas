@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { bigint, foreignKey, index, integer, jsonb, pgTable, text, timestamp, unique, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { type AttendeeAnswer, type BillingData, holdStatus, refundStatus, orderStatus, paymentProvider, paymentStatus, pk, tenantId, ticketStatus, timestamps } from "./_shared";
-import { coupon, event, seat } from "./catalog";
+import { coupon, event, fare, seat } from "./catalog";
 import { tenant } from "./tenancy";
 
 /**
@@ -86,9 +86,16 @@ export const holdSeat = pgTable(
     // Lo que se cobra por ESTA plaza (precio vigente menos su parte del descuento),
     // fijado al iniciar el pago. Se copia a la entrada al emitirla.
     priceCents: bigint("price_cents", { mode: "number" }),
+    // Tarifa elegida (jubilado, estudiante…); null = general. Se copia a la entrada.
+    fareId: uuid("fare_id"),
     ...timestamps,
   },
   (t) => [
+    foreignKey({
+      columns: [t.tenantId, t.fareId],
+      foreignColumns: [fare.tenantId, fare.id],
+      name: "hold_seat_fare_fk",
+    }),
     foreignKey({
       columns: [t.tenantId, t.holdId],
       foreignColumns: [hold.tenantId, hold.id],
@@ -145,9 +152,18 @@ export const ticket = pgTable(
     attendee: jsonb("attendee").$type<AttendeeAnswer[]>(),
     // Pagado por esta entrada, ya con descuento. null = emitida antes de guardarlo.
     priceCents: bigint("price_cents", { mode: "number" }),
+    // Tarifa reducida (null = general) y su nombre al venderla: se muestra en la entrada
+    // y en el control de acceso (comprobar el requisito: DNI, carné…).
+    fareId: uuid("fare_id"),
+    fareName: text("fare_name"),
     ...timestamps,
   },
   (t) => [
+    foreignKey({
+      columns: [t.tenantId, t.fareId],
+      foreignColumns: [fare.tenantId, fare.id],
+      name: "ticket_fare_fk",
+    }),
     unique("ticket_tenant_id_uq").on(t.tenantId, t.id),
     // Un asiento con a lo sumo UNA entrada viva por evento. Parcial: una entrada VOID
     // (reembolso/anulación) no debe bloquear para siempre la reemisión del asiento.

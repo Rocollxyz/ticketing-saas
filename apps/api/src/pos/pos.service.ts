@@ -1,13 +1,14 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { type BillingData, schema } from "@ticketing/database";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { currentPriceCents, seatTaken } from "../catalog/pricing";
 import { seatLabel } from "../catalog/seat-label";
 import { getStore } from "../database/tenant-context";
 import { TenantDb } from "../database/tenant-db.service";
 import { SEATS_SOLD, type SeatsSoldEvent } from "../realtime/seat-events";
 import { validateAttendees } from "../catalog/attendee";
+import { assignFaresTx, fareApplies, farePrice, priceHoldSeatsTx } from "../catalog/fare";
 import { listTx as listFieldsTx } from "../events/attendee-fields.service";
 import { HoldReleaseService } from "../reservation/hold-release.service";
 import { ReservationService } from "../reservation/reservation.service";
@@ -101,6 +102,12 @@ export class PosService {
         .where(eq(schema.ticketType.eventId, eventId))
         .orderBy(schema.ticketType.sortOrder, schema.ticketType.name);
 
+      const fares = await tx
+        .select()
+        .from(schema.fare)
+        .where(and(eq(schema.fare.eventId, eventId), eq(schema.fare.active, true)))
+        .orderBy(schema.fare.sortOrder, schema.fare.createdAt);
+
       const free = new Map<string, number>();
       for (const s of seats) {
         if (s.ticketTypeId && !s.ocupado) free.set(s.ticketTypeId, (free.get(s.ticketTypeId) ?? 0) + 1);
@@ -118,7 +125,19 @@ export class PosService {
           options: f.options,
           ticketTypeIds: f.ticketTypeIds,
         })),
-        ticketTypes: types.map((t) => ({ ...t, disponibles: free.get(t.id) ?? 0 })),
+        ticketTypes: types.map((t) => ({
+          ...t,
+          disponibles: free.get(t.id) ?? 0,
+          // Tarifas reducidas que valen para la categoría, con su precio.
+          fares: fares
+            .filter((f) => fareApplies(f, t.id))
+            .map((f) => ({
+              id: f.id,
+              name: f.name,
+              requirement: f.requirement,
+              precioCents: t.precioCents == null ? null : farePrice(t.precioCents, f),
+            })),
+        })),
         seats:
           ev.seatingMode === "RESERVED"
             ? seats
@@ -148,7 +167,7 @@ export class PosService {
     selection: { seatIds?: string[]; quantities?: Record<string, number> },
     method: PosMethod,
     buyerEmail?: string,
-    extra: { attendees?: unknown; billing?: BillingData | null } = {},
+    extra: { attendees?: unknown; fares?: unknown; billing?: BillingData | null } = {},
   ) {
     this.assertRole();
     if (method !== "cash" && method !== "card") throw new BadRequestException("Método inválido");
@@ -164,6 +183,7 @@ export class PosService {
     try {
       amountCents = await this.db.run(async (tx) => {
         await this.attendeesTx(tx, eventId, holdId, extra.attendees);
+        await assignFaresTx(tx, eventId, holdId, extra.fares);
         return this.priceHoldTx(tx, holdId, seatIds.length);
       });
     } catch (e) {
@@ -214,10 +234,11 @@ export class PosService {
         .where(inArray(schema.seat.id, seatIds));
       const labelOf = new Map(labels.map((l) => [l.id, seatLabel(l)]));
       const names = await tx
-        .select({ id: schema.ticket.id, name: schema.ticket.attendeeName })
+        .select({ id: schema.ticket.id, name: schema.ticket.attendeeName, fare: schema.ticket.fareName })
         .from(schema.ticket)
         .where(inArray(schema.ticket.id, tickets.map((t) => t.ticketId)));
       const nameOf = new Map(names.map((n) => [n.id, n.name]));
+      const fareOf = new Map(names.map((n) => [n.id, n.fare]));
 
       return {
         orderId: o.id,
@@ -225,6 +246,7 @@ export class PosService {
           ticketId: t.ticketId,
           seat: labelOf.get(t.seatId) ?? "?",
           attendeeName: nameOf.get(t.ticketId) ?? null,
+          fare: fareOf.get(t.ticketId) ?? null,
           qr: t.qr,
         })),
       };
@@ -275,19 +297,11 @@ export class PosService {
     holdId: string,
     seatCount: number,
   ): Promise<bigint> {
-    const priced = await tx
-      .select({ id: schema.holdSeat.id, amount: currentPriceCents(schema.ticketType.id) })
-      .from(schema.holdSeat)
-      .innerJoin(schema.seat, eq(schema.seat.id, schema.holdSeat.seatId))
-      .innerJoin(schema.ticketType, eq(schema.ticketType.id, schema.seat.ticketTypeId))
-      .where(eq(schema.holdSeat.holdId, holdId));
-    if (priced.length !== seatCount || priced.some((p) => p.amount == null)) {
-      throw new BadRequestException("Hay asientos sin precio asignado");
-    }
+    const priced = await priceHoldSeatsTx(tx, holdId, seatCount);
     // Lo cobrado por cada plaza (se copia a la entrada): base de los reembolsos.
     for (const p of priced) {
-      await tx.update(schema.holdSeat).set({ priceCents: p.amount }).where(eq(schema.holdSeat.id, p.id));
+      await tx.update(schema.holdSeat).set({ priceCents: p.amountCents }).where(eq(schema.holdSeat.id, p.id));
     }
-    return priced.reduce((acc, r) => acc + BigInt(r.amount!), 0n);
+    return priced.reduce((acc, r) => acc + BigInt(r.amountCents), 0n);
   }
 }

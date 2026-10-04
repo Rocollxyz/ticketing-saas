@@ -138,6 +138,7 @@ export class OutboxWorkerService {
         numero: schema.seat.numero,
         isGeneral: schema.seat.isGeneral,
         categoria: schema.ticketType.name,
+        fareName: schema.ticket.fareName,
         // Lo pagado por la entrada (con descuento); las antiguas, el precio vigente.
         precio: sql<number | null>`coalesce(${schema.ticket.priceCents}, ${currentPriceCents(schema.ticketType.id)})`.mapWith(Number),
         attendeeName: schema.ticket.attendeeName,
@@ -170,7 +171,8 @@ export class OutboxWorkerService {
         attendeeName: t.attendeeName,
         // Campos marcados "imprimir en la entrada" (el nombre ya va aparte).
         extra: (t.attendee ?? []).filter((a) => a.onTicket && a.preset !== "name"),
-        categoria: t.categoria,
+        // Con tarifa reducida, la entrada lo dice (se comprueba el requisito en la puerta).
+        categoria: t.fareName ? `${t.categoria ?? "Entrada"} · ${t.fareName}` : t.categoria,
         precio: euros(t.precio),
         qr,
       });

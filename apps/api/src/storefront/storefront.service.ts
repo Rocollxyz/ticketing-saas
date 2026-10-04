@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { schema } from "@ticketing/database";
 import { and, eq, inArray, ne, sql } from "drizzle-orm";
+import { fareApplies, farePrice } from "../catalog/fare";
 import { currentPriceCents, qualified, seatSold, seatTaken } from "../catalog/pricing";
 import { eventSalesState, SALES_REASON_TEXT, ticketTypeSalesState } from "../catalog/sales-rules";
 import { seatLabel } from "../catalog/seat-label";
@@ -245,6 +246,12 @@ export class StorefrontService {
           .where(eq(schema.ticketType.eventId, eventId))
           .orderBy(schema.ticketType.sortOrder, schema.ticketType.name);
 
+        const fares = await tx
+          .select()
+          .from(schema.fare)
+          .where(and(eq(schema.fare.eventId, eventId), eq(schema.fare.active, true)))
+          .orderBy(schema.fare.sortOrder, schema.fare.createdAt);
+
         const seats = await tx
           .select({
             id: schema.seat.id,
@@ -367,6 +374,15 @@ export class StorefrontService {
             const tst = ticketTypeSalesState({ salesStartAt, salesEndAt });
             return {
               ...t,
+              // Tarifas reducidas que valen para esta categoría, con su precio ya calculado.
+              fares: fares
+                .filter((f) => fareApplies(f, t.id))
+                .map((f) => ({
+                  id: f.id,
+                  name: f.name,
+                  requirement: f.requirement,
+                  precioCents: t.precioCents == null ? null : farePrice(t.precioCents, f),
+                })),
               regularCents: t.regularCents !== t.precioCents ? t.regularCents : null,
               disponibles: free.get(t.id) ?? 0,
               salesOpen: tst.open,
@@ -470,7 +486,7 @@ export class StorefrontService {
     slug: string,
     holdId: string,
     buyerEmail?: string,
-    buyer: { name?: unknown; attendees?: unknown; couponCode?: unknown; billing?: unknown; method?: unknown } = {},
+    buyer: { name?: unknown; attendees?: unknown; fares?: unknown; couponCode?: unknown; billing?: unknown; method?: unknown } = {},
   ) {
     const method = buyer.method === "bizum" ? "bizum" : "card";
     if (!UUID_RE.test(holdId ?? "")) throw new BadRequestException("Reserva inválida");
@@ -485,6 +501,7 @@ export class StorefrontService {
       this.checkout.createCheckout(holdId, email, {
         name: buyer.name as string | undefined,
         attendees: buyer.attendees,
+        fares: buyer.fares,
         couponCode: couponCodeOf(buyer.couponCode),
         billing: buyer.billing == null ? null : parseBilling(buyer.billing),
         method,
@@ -518,7 +535,7 @@ export class StorefrontService {
   quoteCoupon(
     slug: string,
     eventId: string,
-    selection: { seatIds?: unknown; quantities?: unknown },
+    selection: { seatIds?: unknown; quantities?: unknown; fares?: unknown },
     code: unknown,
   ) {
     const c = couponCodeOf(code);
@@ -529,7 +546,7 @@ export class StorefrontService {
       selection.quantities && typeof selection.quantities === "object"
         ? (selection.quantities as Record<string, number>)
         : undefined;
-    return this.withTenant(slug, () => this.checkout.quote(eventId, { seatIds, quantities }, c));
+    return this.withTenant(slug, () => this.checkout.quote(eventId, { seatIds, quantities, fares: selection.fares }, c));
   }
 }
 

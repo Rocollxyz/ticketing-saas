@@ -16,6 +16,7 @@ import { formatInZone } from "../lib/time";
 import AttendeeFieldsPanel from "./AttendeeFieldsPanel";
 import CouponsPanel from "./CouponsPanel";
 import EventDetailsForm from "./EventDetailsForm";
+import FaresPanel from "./FaresPanel";
 import { STATUS_LABEL } from "./EventsList";
 import SeatmapEditor from "./SeatmapEditor";
 import SessionsPanel from "./SessionsPanel";
@@ -298,7 +299,10 @@ export default function EventEditor({
       )}
       {tab === "sessions" && <SessionsPanel token={token} detail={detail} onOpen={onOpen} onChanged={reload} />}
       {tab === "tickets" && (
-        <TicketTypesPanel token={token} detail={detail} disabled={cancelled} onChanged={reload} />
+        <div className="stack">
+          <TicketTypesPanel token={token} detail={detail} disabled={cancelled} onChanged={reload} />
+          {detail.ticketTypes.length > 0 && <FaresPanel token={token} detail={detail} disabled={cancelled} />}
+        </div>
       )}
       {tab === "form" && <AttendeeFieldsPanel token={token} detail={detail} disabled={cancelled} />}
       {tab === "map" && <SeatmapEditor token={token} eventId={eventId} />}

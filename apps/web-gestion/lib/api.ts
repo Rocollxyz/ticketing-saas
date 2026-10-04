@@ -358,6 +358,8 @@ export interface IssuedTicketRow {
   buyerName: string | null;
   ticketTypeId: string | null;
   categoria: string | null;
+  /** Tarifa reducida (jubilado, estudiante…); null = general. */
+  fareName: string | null;
   seat: string;
   isGeneral: boolean;
   channel: TicketChannel;
@@ -500,6 +502,39 @@ export const updateCoupon = (token: string, id: string, data: CouponInput) =>
 
 export const deleteCoupon = (token: string, id: string) =>
   authed<{ ok: true }>(token, `/coupons/${id}`, { method: "DELETE" });
+
+/** Tarifa reducida del evento (jubilado, estudiante…): rebaja el precio de la categoría. */
+export interface Fare {
+  id: string;
+  eventId: string;
+  name: string;
+  requirement: string | null;
+  kind: CouponKind;
+  value: number; // % (1-100) o céntimos de rebaja
+  ticketTypeIds: string[] | null;
+  active: boolean;
+  sortOrder: number;
+  sold: number;
+}
+
+export type FareInput = Partial<Pick<Fare, "name" | "requirement" | "kind" | "value" | "ticketTypeIds" | "active">>;
+
+export const listFares = (token: string, eventId: string) => authed<Fare[]>(token, `/events/${eventId}/fares`);
+
+export const createFare = (token: string, eventId: string, data: FareInput) =>
+  authed<Fare>(token, `/events/${eventId}/fares`, { method: "POST", body: JSON.stringify(data) });
+
+export const updateFare = (token: string, eventId: string, id: string, data: FareInput) =>
+  authed<Fare>(token, `/events/${eventId}/fares/${id}`, { method: "PATCH", body: JSON.stringify(data) });
+
+export const deleteFare = (token: string, eventId: string, id: string) =>
+  authed<{ ok: true }>(token, `/events/${eventId}/fares/${id}`, { method: "DELETE" });
+
+/** Precio con tarifa (misma regla que la API): % redondeado al céntimo o importe menos, mínimo 0. */
+export function farePrice(baseCents: number, f: Pick<Fare, "kind" | "value">) {
+  const off = f.kind === "PERCENT" ? Math.round((baseCents * f.value) / 100) : f.value;
+  return Math.max(0, baseCents - off);
+}
 
 export interface BillingData {
   name: string;

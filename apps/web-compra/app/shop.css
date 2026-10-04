@@ -251,3 +251,6 @@ a.ev-session:hover { border-color: var(--accent); }
 .embed[data-theme="light"] { background: transparent; }
 .embed .page-wide { padding: 16px 16px 24px; }
 html:has(.embed), html:has(.embed) body { background: transparent; }
+
+/* Tarifa de cada butaca elegida (general, jubilado…). */
+.fare-select { flex: 1; min-width: 0; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font: inherit; font-size: 13px; }

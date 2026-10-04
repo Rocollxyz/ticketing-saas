@@ -71,6 +71,7 @@ export class StorefrontController {
       buyerEmail?: string;
       buyerName?: unknown;
       attendees?: unknown;
+      fares?: unknown;
       couponCode?: unknown;
       billing?: unknown;
       method?: unknown;
@@ -79,6 +80,7 @@ export class StorefrontController {
     return this.shop.createCheckout(slug, body.holdId, body.buyerEmail, {
       name: body.buyerName,
       attendees: body.attendees,
+      fares: body.fares,
       couponCode: body.couponCode,
       billing: body.billing,
       method: body.method,
@@ -102,7 +104,7 @@ export class StorefrontController {
   @RateLimit({ name: "shop-coupon", limit: 15, windowSec: 600 })
   quoteCoupon(
     @Param("slug") slug: string,
-    @Body() body: { eventId?: string; seatIds?: unknown; quantities?: unknown; code?: unknown },
+    @Body() body: { eventId?: string; seatIds?: unknown; quantities?: unknown; fares?: unknown; code?: unknown },
   ) {
     return this.shop.quoteCoupon(slug, body?.eventId ?? "", body ?? {}, body?.code);
   }

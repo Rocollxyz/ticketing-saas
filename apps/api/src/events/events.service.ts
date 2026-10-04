@@ -411,6 +411,19 @@ export class EventsService {
         );
       }
 
+      // Tarifas (jubilado, estudiante…), con sus categorías traducidas a las de la copia.
+      const fares = await tx.select().from(schema.fare).where(eq(schema.fare.eventId, eventId));
+      if (fares.length) {
+        await tx.insert(schema.fare).values(
+          fares.map(({ id: _i, createdAt: _c, updatedAt: _u, eventId: _e, ticketTypeIds, ...f }) => ({
+            ...f,
+            tenantId,
+            eventId: copy.id,
+            ticketTypeIds: ticketTypeIds?.map((t) => typeMap.get(t)).filter((t): t is string => !!t) ?? null,
+          })),
+        );
+      }
+
       // Numeradas: se copia el plano (zonas y asientos con posición).
       if (types.some((t) => t.seating === "RESERVED") || src.seatingMode === "RESERVED") {
         const zones = await tx.select().from(schema.zone).where(eq(schema.zone.eventId, eventId));

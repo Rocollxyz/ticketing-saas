@@ -141,6 +141,13 @@
       "when": 1791124901610,
       "tag": "0019_event_series",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1791126057312,
+      "tag": "0020_fares",
+      "breakpoints": true
     }
   ]
 }

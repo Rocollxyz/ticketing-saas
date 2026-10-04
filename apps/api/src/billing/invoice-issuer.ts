@@ -132,6 +132,7 @@ async function orderLinesTx(tx: Tx, orderId: string, paidCents: number) {
       id: schema.ticket.id,
       priceCents: schema.ticket.priceCents,
       typeName: schema.ticketType.name,
+      fareName: schema.ticket.fareName,
       rateBp: schema.ticketType.taxRateBp,
       exemptReason: schema.ticketType.taxExemptReason,
     })
@@ -159,9 +160,9 @@ async function orderLinesTx(tx: Tx, orderId: string, paidCents: number) {
       remainder = 0;
     }
     const rateBp = t.rateBp ?? 1000;
-    const key = `${t.typeName}|${price}|${rateBp}`;
+    const key = `${t.typeName}|${t.fareName ?? ""}|${price}|${rateBp}`;
     const g = groups.get(key) ?? {
-      description: `Entrada «${t.typeName ?? "General"}» — ${o.eventName}${when ? ` (${when})` : ""}`,
+      description: `Entrada «${t.typeName ?? "General"}»${t.fareName ? ` (tarifa ${t.fareName})` : ""} — ${o.eventName}${when ? ` (${when})` : ""}`,
       quantity: 0,
       unitCents: price,
       totalCents: 0,

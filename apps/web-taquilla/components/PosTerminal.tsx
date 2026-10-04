@@ -25,6 +25,8 @@ export default function PosTerminal({
   const [error, setError] = useState<string | null>(null);
   const [sale, setSale] = useState<SaleResult | null>(null);
   const [values, setValues] = useState<SlotValues>({});
+  // Tarifa de cada plaza de la venta (clave del slot → tarifa; sin entrada = general).
+  const [fareBySlot, setFareBySlot] = useState<Record<string, string>>({});
   const [invoice, setInvoice] = useState(false);
   const [billing, setBilling] = useState(EMPTY_BILLING);
 
@@ -48,9 +50,9 @@ export default function PosTerminal({
   const cols = placed.length ? Math.max(...placed.map((s) => s.posX!)) + 1 : 1;
   const rows = placed.length ? Math.max(...placed.map((s) => s.posY!)) + 1 : 1;
   const count = selected.size + Object.values(qty).reduce((a, b) => a + b, 0);
-  const total =
-    generalTypes.reduce((a, t) => a + (qty[t.id] ?? 0) * (t.precioCents ?? 0), 0) +
-    seats.filter((s) => selected.has(s.id)).reduce((a, s) => a + (s.precioCents ?? 0), 0);
+  const typeById = new Map((map?.ticketTypes ?? []).map((t) => [t.id, t]));
+  const fareOf = (key: string, typeId: string | null) =>
+    fareBySlot[key] ? typeById.get(typeId ?? "")?.fares?.find((f) => f.id === fareBySlot[key]) : undefined;
 
   // Plazas de la venta en curso (para pedir los datos de cada asistente).
   const fields = map?.attendeeFields ?? [];
@@ -73,6 +75,12 @@ export default function PosTerminal({
       })),
     ),
   ];
+  // Precio de cada plaza con su tarifa.
+  const slotPrice = (s: Slot) =>
+    (fareOf(s.key, s.ticketTypeId)?.precioCents ??
+      (s.seatId ? seats.find((x) => x.id === s.seatId)?.precioCents : typeById.get(s.ticketTypeId ?? "")?.precioCents)) ?? 0;
+  const total = slots.reduce((a, s) => a + slotPrice(s), 0);
+  const fareSlots = slots.filter((s) => (typeById.get(s.ticketTypeId ?? "")?.fares?.length ?? 0) > 0);
 
   function toggle(s: PosSeat) {
     if (!s.disponible) return;
@@ -102,10 +110,14 @@ export default function PosTerminal({
           attendees: slots
             .filter((s) => s.fields.length)
             .map((s) => ({ seatId: s.seatId, ticketTypeId: s.ticketTypeId, values: values[s.key] ?? {} })),
+          fares: slots
+            .filter((s) => fareOf(s.key, s.ticketTypeId))
+            .map((s) => ({ seatId: s.seatId, ticketTypeId: s.ticketTypeId, fareId: fareBySlot[s.key] })),
           billing: invoice ? billing : undefined,
         },
       );
       setSale(res);
+      setFareBySlot({});
       setSelected(new Set());
       setQty({});
       setValues({});
@@ -151,6 +163,7 @@ export default function PosTerminal({
               <div style={{ fontSize: 14, color: "#333", margin: "4px 0 10px" }}>
                 {/^[A-Z]+\d+$/.test(t.seat) ? `Asiento ${t.seat}` : t.seat}
                 {t.attendeeName && <div style={{ fontWeight: 600, color: "#111" }}>{t.attendeeName}</div>}
+                {t.fare && <div style={{ fontWeight: 600, color: "#111" }}>Tarifa {t.fare}</div>}
               </div>
               <QRCodeSVG value={t.qr} size={150} />
               <div style={{ fontSize: 9, color: "#888", marginTop: 8 }}>{t.ticketId}</div>
@@ -243,6 +256,38 @@ export default function PosTerminal({
             💳 Tarjeta (datáfono)
           </button>
         </div>
+        {fareSlots.length > 0 && (
+          // Tarifa por entrada: general o reducida (se comprueba el requisito al vender).
+          <div style={{ display: "grid", gap: 8, marginBottom: 12 }}>
+            <strong style={{ fontSize: 14 }}>Tarifas</strong>
+            {fareSlots.map((s) => {
+              const t = typeById.get(s.ticketTypeId ?? "")!;
+              const cur = fareBySlot[s.key] ?? "";
+              const pick = (id: string) =>
+                setFareBySlot(({ [s.key]: _old, ...rest }) => (id ? { ...rest, [s.key]: id } : rest));
+              return (
+                <div key={s.key} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <span style={{ minWidth: 110, fontSize: 13 }}>{s.label}</span>
+                  <button onClick={() => pick("")} style={fareBtn(cur === "")}>
+                    General {euros(s.seatId ? (seats.find((x) => x.id === s.seatId)?.precioCents ?? null) : t.precioCents)}
+                  </button>
+                  {t.fares!.map((f) => (
+                    <button key={f.id} onClick={() => pick(f.id)} style={fareBtn(cur === f.id)} title={f.requirement ?? ""}>
+                      {f.name} {euros(f.precioCents)}
+                    </button>
+                  ))}
+                </div>
+              );
+            })}
+            {[...new Map(fareSlots.map((s) => fareOf(s.key, s.ticketTypeId)).filter((f) => f?.requirement).map((f) => [f!.id, f!])).values()].map(
+              (f) => (
+                <div key={f.id} style={{ fontSize: 12, color: "#f5b94a" }}>
+                  ⚠ {f.name}: {f.requirement}
+                </div>
+              ),
+            )}
+          </div>
+        )}
         {count > 0 && (
           <SaleDetails
             slots={slots}
@@ -278,3 +323,4 @@ const stepBtn: React.CSSProperties = { width: 44, height: 44, borderRadius: 8, b
 const linkBtn: React.CSSProperties = { background: "none", border: "none", color: "#5b9dff", cursor: "pointer", fontSize: 14, padding: 0 };
 const methodBtn = (active: boolean): React.CSSProperties => ({ flex: 1, padding: 12, borderRadius: 8, border: active ? "2px solid #5b9dff" : "1px solid #2b313c", background: active ? "#1d2b45" : "#171a21", color: "#e9edf2", cursor: "pointer", fontSize: 14, fontWeight: 600 });
 const ticketCard: React.CSSProperties = { background: "#fff", borderRadius: 10, padding: 18, width: 200, textAlign: "center", border: "1px solid #ddd" };
+const fareBtn = (active: boolean): React.CSSProperties => ({ padding: "6px 10px", borderRadius: 8, border: active ? "2px solid #5b9dff" : "1px solid #2b313c", background: active ? "#1d2b45" : "#171a21", color: "#e9edf2", cursor: "pointer", fontSize: 13 });

@@ -72,7 +72,20 @@ directorio de promotores en la portada `/` (hoy es una demo fija).
   `event.series_id` (migración 0019).
 - **Hueco**: en la lista de eventos de la consola las funciones salen como filas sueltas con
   el mismo nombre (se distinguen por fecha); agruparlas cuando haya muchas.
-- Siguiente: **tarifas por asiento** (general, jubilado, estudiante… sobre la misma butaca).
+- ✅ **Tarifas** (jubilado, estudiante, infantil…): en «Entradas», rebaja en % o importe
+  sobre el precio vigente de la categoría (también el anticipado), limitable a categorías,
+  con requisito («Presentar DNI») y atajos con las habituales. El comprador elige la tarifa
+  por butaca (desplegable) o por cantidad en las generales («Pista · Jubilado»); el requisito
+  se avisa al comprar y sale en la entrada (PDF), en la factura («tarifa Jubilado»), en
+  «Asistentes» y al validar el QR. Taquilla: botones de tarifa por entrada. El código de
+  descuento se aplica sobre el precio ya rebajado. Se copian al duplicar y en funciones
+  nuevas. Tabla `fare`, `hold_seat.fare_id`, `ticket.fare_id/fare_name` (migración 0020).
+- **Huecos tarifas**: (1) cambiar una tarifa en una función no se aplica a las demás
+  (hay que editarlas en cada una); (2) sin cupo por tarifa (p. ej. «máx. 20 jubilados»);
+  (3) la app de control de acceso aún no existe en el repo: la API ya devuelve
+  `fare`/`requirement` al escanear, falta mostrarlo cuando se haga.
+- Corregido de paso: el presupuesto con código de descuento ignoraba los asientos cuando
+  el pedido mezclaba asientos y entradas sin asiento.
 - Después: abonos, gastos de gestión, taquilla profesional (cierre de caja, impresión
   térmica, grupos), liquidaciones por función, planos reales (línea Raquel).
 
@@ -174,7 +187,7 @@ directorio de promotores en la portada `/` (hoy es una demo fija).
 ## Coordinación entre líneas
 - `main` nunca recibe trabajo a medias de Darrian/Raquel; se integrarán cuando estén
   maduras (decisión aparte).
-- La BD es compartida y ya tiene la migración **0019** (funciones de un espectáculo; 0018 huecos/elementos del plano; 0017 eventos mixtos; 0016 tema de la tienda; 0015 RGPD; 0014 facturación, 0013
+- La BD es compartida y ya tiene la migración **0020** (tarifas; 0019 funciones de un espectáculo; 0018 huecos/elementos del plano; 0017 eventos mixtos; 0016 tema de la tienda; 0015 RGPD; 0014 facturación, 0013
   reembolsos, 0012 cupones, 0011 datos de asistentes). Las claves de QR están cifradas:
   las ventanas de Darrian/Raquel necesitan la misma `MASTER_KEY` en su `.env`. Para que
   Darrian/Raquel tengan el código al día: en su ventana, «trae los cambios de main»

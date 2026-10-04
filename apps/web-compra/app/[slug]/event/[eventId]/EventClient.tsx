@@ -90,7 +90,10 @@ export default function EventClient({
   const mixed = hasGeneral && hasMap;
 
   const [selected, setSelected] = useState<Set<string>>(new Set()); // numerado: asientos
-  const [qty, setQty] = useState<Record<string, number>>({}); // generales: cantidades
+  // Generales: cantidades por categoría y tarifa (clave "categoría" o "categoría|tarifa").
+  const [qty, setQty] = useState<Record<string, number>>({});
+  // Numeradas: tarifa elegida por asiento (sin entrada = general).
+  const [seatFare, setSeatFare] = useState<Record<string, string>>({});
   const [checkout, setCheckout] = useState<CheckoutData | null>(null);
   const [hold, setHold] = useState<ActiveHold | null>(null);
   // Plazas reservadas pendientes de rellenar el formulario de asistentes.
@@ -185,16 +188,32 @@ export default function EventClient({
 
   const typeById = useMemo(() => new Map(detail.ticketTypes.map((t) => [t.id, t])), [detail.ticketTypes]);
 
+  /** Precio de una entrada de esa categoría con esa tarifa (sin tarifa, el de la categoría). */
+  const priceOf = (typeId: string | null, fareId?: string | null) => {
+    const t = typeId ? typeById.get(typeId) : undefined;
+    const f = fareId ? t?.fares?.find((x) => x.id === fareId) : undefined;
+    return (f ? f.precioCents : t?.precioCents) ?? 0;
+  };
+  const chosenSeats = detail.seats.filter((s) => selected.has(s.id));
   const count = selected.size + Object.values(qty).reduce((a, b) => a + b, 0);
   const total =
-    Object.entries(qty).reduce((acc, [id, n]) => acc + n * (typeById.get(id)?.precioCents ?? 0), 0) +
-    detail.seats.filter((s) => selected.has(s.id)).reduce((acc, s) => acc + (s.precioCents ?? 0), 0);
+    Object.entries(qty).reduce((acc, [k, n]) => acc + n * priceOf(keyType(k), keyFare(k)), 0) +
+    chosenSeats.reduce((acc, s) => acc + (seatFare[s.id] ? priceOf(s.ticketTypeId, seatFare[s.id]) : (s.precioCents ?? 0)), 0);
+  // Tarifas elegidas con requisito: se recuerda qué hay que llevar a la puerta.
+  const requirements = [
+    ...new Map(
+      [...chosenSeats.map((s) => [s.ticketTypeId, seatFare[s.id]] as const), ...Object.entries(qty).filter(([, n]) => n > 0).map(([k]) => [keyType(k), keyFare(k)] as const)]
+        .map(([tt, fid]) => (fid && tt ? typeById.get(tt)?.fares?.find((f) => f.id === fid) : undefined))
+        .filter((f): f is NonNullable<typeof f> => !!f?.requirement)
+        .map((f) => [f.id, f]),
+    ).values(),
+  ];
 
   // Reglas del pedido (la API las vuelve a comprobar).
   const ruleError = useMemo(() => {
     if (count > ev.maxPerOrder) return `Máximo ${ev.maxPerOrder} entradas por pedido`;
     const perType = new Map<string, number>();
-    Object.entries(qty).forEach(([id, n]) => n && perType.set(id, n));
+    Object.entries(qty).forEach(([k, n]) => n && perType.set(keyType(k), (perType.get(keyType(k)) ?? 0) + n));
     detail.seats
       .filter((s) => selected.has(s.id) && s.ticketTypeId)
       .forEach((s) => perType.set(s.ticketTypeId!, (perType.get(s.ticketTypeId!) ?? 0) + 1));
@@ -207,11 +226,20 @@ export default function EventClient({
     return null;
   }, [count, ev.maxPerOrder, qty, selected, detail.seats, typeById]);
 
+  /** Tarifa de cada entrada, en el formato de la API (las generales, por categoría). */
+  const fares = () => [
+    ...[...selected].filter((id) => seatFare[id]).map((seatId) => ({ seatId, fareId: seatFare[seatId] })),
+    ...Object.entries(qty).flatMap(([k, n]) =>
+      keyFare(k) ? Array.from({ length: n }, () => ({ ticketTypeId: keyType(k), fareId: keyFare(k) })) : [],
+    ),
+  ];
+
   const payable = coupon ? coupon.totalCents : total;
 
   /** Lo elegido, en el formato de la API (reserva y presupuesto con código). */
   const selection = () => {
-    const quantities = Object.fromEntries(Object.entries(qty).filter(([, n]) => n > 0));
+    const quantities: Record<string, number> = {};
+    for (const [k, n] of Object.entries(qty)) if (n > 0) quantities[keyType(k)] = (quantities[keyType(k)] ?? 0) + n;
     return {
       ...(selected.size ? { seatIds: [...selected] } : {}),
       ...(Object.keys(quantities).length ? { quantities } : {}),
@@ -223,7 +251,7 @@ export default function EventClient({
     const r = await fetch(`${API_URL}/shop/${slug}/coupons/quote`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ eventId: ev.id, code, ...selection() }),
+      body: JSON.stringify({ eventId: ev.id, code, ...selection(), fares: fares() }),
     }).catch(() => null);
     const body = await r?.json().catch(() => null);
     if (!r?.ok) {
@@ -263,6 +291,7 @@ export default function EventClient({
       next.has(seatId) ? next.delete(seatId) : next.add(seatId);
       return next;
     });
+    setSeatFare(({ [seatId]: _drop, ...rest }) => rest);
   }
 
   /**
@@ -335,6 +364,7 @@ export default function EventClient({
         buyerEmail: email.trim(),
         buyerName: buyerName.trim() || undefined,
         attendees,
+        fares: fares(),
         couponCode: coupon?.code,
         billing: sendBilling ? billing : undefined,
         method,
@@ -550,26 +580,73 @@ export default function EventClient({
           {hasMap && (
             <div style={{ display: "grid", gap: 6 }}>
               {mixed && <strong style={{ fontSize: 14 }}>Asientos numerados</strong>}
-              <SelectedSeats detail={detail} selected={selected} onRemove={(id) => toggle(id, true)} />
+              <SelectedSeats
+                detail={detail}
+                selected={selected}
+                seatFare={seatFare}
+                priceOf={priceOf}
+                onFare={(id, f) => setSeatFare((p) => ({ ...p, [id]: f }))}
+                onRemove={(id) => toggle(id, true)}
+              />
             </div>
           )}
           {hasGeneral && (
             <div style={{ display: "grid" }}>
               {mixed && <strong style={{ fontSize: 14, marginTop: 6 }}>Sin asiento</strong>}
-              {generalTypes.map((t) => (
-                <QuantityRow
-                  key={t.id}
-                  t={t}
-                  tz={ev.timezone}
-                  value={qty[t.id] ?? 0}
-                  disabled={false}
-                  onChange={(n) => setQty((p) => ({ ...p, [t.id]: n }))}
-                />
-              ))}
+              {generalTypes.map((t) => {
+                // Con tarifas: una fila por tarifa («Pista · General», «Pista · Jubilado»…) que
+                // comparten las plazas libres y el máximo por pedido de la categoría.
+                const variants = [null, ...(t.fares ?? [])];
+                const keys = variants.map((f) => (f ? `${t.id}|${f.id}` : t.id));
+                const used = keys.reduce((a, k) => a + (qty[k] ?? 0), 0);
+                return variants.map((f, i) => {
+                  const k = keys[i];
+                  const others = used - (qty[k] ?? 0);
+                  const row: ShopTicketType = f
+                    ? {
+                        ...t,
+                        name: `${t.name} · ${f.name}`,
+                        description: f.requirement,
+                        precioCents: f.precioCents,
+                        regularCents: null,
+                        minPerOrder: 1,
+                        disponibles: Math.max(0, t.disponibles - others),
+                        maxPerOrder: t.maxPerOrder == null ? null : Math.max(0, t.maxPerOrder - others),
+                      }
+                    : variants.length > 1
+                      ? {
+                          ...t,
+                          name: `${t.name} · General`,
+                          disponibles: Math.max(0, t.disponibles - others),
+                          maxPerOrder: t.maxPerOrder == null ? null : Math.max(0, t.maxPerOrder - others),
+                        }
+                      : t;
+                  return (
+                    <QuantityRow
+                      key={k}
+                      t={row}
+                      tz={ev.timezone}
+                      value={qty[k] ?? 0}
+                      disabled={false}
+                      onChange={(n) => setQty((p) => ({ ...p, [k]: n }))}
+                    />
+                  );
+                });
+              })}
             </div>
           )}
           {ruleError && <div className="notice warn">{ruleError}</div>}
           {error && <div className="notice error">{error}</div>}
+          {requirements.length > 0 && (
+            <div className="notice warn" style={{ fontSize: 13 }}>
+              Tarifas reducidas: se comprueban en la entrada.
+              {requirements.map((f) => (
+                <div key={f.id}>
+                  <strong>{f.name}</strong>: {f.requirement}
+                </div>
+              ))}
+            </div>
+          )}
           <TotalRow count={count} total={total} payable={payable} coupon={coupon} />
           <button className="btn-primary" disabled={!canContinue || loading} onClick={reservar}>
             {loading
@@ -882,18 +959,29 @@ function TotalRow({
   );
 }
 
+/** Clave de cantidades: "categoría" o "categoría|tarifa". */
+const keyType = (k: string) => k.split("|")[0];
+const keyFare = (k: string) => k.split("|")[1] ?? null;
+
 /** Numerado: los asientos elegidos en el plano, en la caja de compra. */
 function SelectedSeats({
   detail,
   selected,
+  seatFare,
+  priceOf,
+  onFare,
   onRemove,
 }: {
   detail: EventDetail;
   selected: Set<string>;
+  seatFare: Record<string, string>;
+  priceOf: (typeId: string | null, fareId?: string | null) => number;
+  onFare: (seatId: string, fareId: string) => void;
   onRemove: (id: string) => void;
 }) {
   const seats = detail.seats.filter((s) => selected.has(s.id));
   if (!seats.length) return <p style={{ ...muted, margin: 0 }}>Toca los asientos libres en el plano para elegirlos.</p>;
+  const faresOf = (typeId: string | null) => detail.ticketTypes.find((t) => t.id === typeId)?.fares ?? [];
   return (
     <div style={{ display: "grid", gap: 8 }}>
       {seats.map((s) => (
@@ -902,8 +990,25 @@ function SelectedSeats({
             {s.fila}
             {s.numero}
           </strong>
-          <span style={{ ...muted, flex: 1 }}>{s.categoria}</span>
-          <span>{euros(s.precioCents)}</span>
+          {faresOf(s.ticketTypeId).length > 0 ? (
+            // Tarifa de esta butaca: general o reducida (jubilado, estudiante…).
+            <select
+              className="fare-select"
+              aria-label={`Tarifa de ${s.fila}${s.numero}`}
+              value={seatFare[s.id] ?? ""}
+              onChange={(e) => onFare(s.id, e.target.value)}
+            >
+              <option value="">{s.categoria} · General</option>
+              {faresOf(s.ticketTypeId).map((f) => (
+                <option key={f.id} value={f.id}>
+                  {s.categoria} · {f.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span style={{ ...muted, flex: 1 }}>{s.categoria}</span>
+          )}
+          <span>{euros(seatFare[s.id] ? priceOf(s.ticketTypeId, seatFare[s.id]) : s.precioCents)}</span>
           <button className="btn-link" aria-label={`Quitar ${s.fila}${s.numero}`} onClick={() => onRemove(s.id)}>
             <X size={16} />
           </button>

@@ -51,6 +51,16 @@ export interface ShopTicketType {
   disponibles: number;
   salesOpen: boolean;
   salesMessage: string | null;
+  /** Tarifas reducidas que valen para esta categoría (jubilado, estudiante…). */
+  fares?: ShopFare[];
+}
+
+export interface ShopFare {
+  id: string;
+  name: string;
+  /** Lo que hay que acreditar en la puerta («Presentar DNI»). */
+  requirement: string | null;
+  precioCents: number | null;
 }
 
 export type AttendeeFieldType =

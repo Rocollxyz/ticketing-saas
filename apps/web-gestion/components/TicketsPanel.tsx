@@ -250,6 +250,7 @@ function TicketRows({
         <td>
           {t.seat}
           {!t.isGeneral && t.categoria && <div className="faint">{t.categoria}</div>}
+          {t.fareName && <div className="faint">Tarifa {t.fareName}</div>}
         </td>
         <td>{t.attendeeName ?? <span className="faint">—</span>}</td>
         <td>

@@ -140,6 +140,7 @@ export class TicketsService {
         numero: schema.seat.numero,
         isGeneral: schema.seat.isGeneral,
         categoria: schema.ticketType.name,
+        fareName: schema.ticket.fareName,
         channel: channelSql,
         checkedInAt: checkedInAtSql,
         priceCents: schema.ticket.priceCents,

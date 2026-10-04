@@ -15,7 +15,7 @@ export interface ScanOutcome {
   result: ScanResult;
   reason?: string;
   /** `attendee`: titular, si la entrada es nominativa (para cotejar con el DNI). */
-  ticket?: { id: string; seat: string; event: string; attendee?: string | null };
+  ticket?: { id: string; seat: string; event: string; attendee?: string | null; fare?: string; requirement?: string | null };
   previousScanAt?: string;
 }
 
@@ -85,8 +85,11 @@ export class AccessService {
         status: schema.ticket.status,
         seatId: schema.ticket.seatId,
         attendeeName: schema.ticket.attendeeName,
+        fareName: schema.ticket.fareName,
+        requirement: schema.fare.requirement,
       })
       .from(schema.ticket)
+      .leftJoin(schema.fare, eq(schema.fare.id, schema.ticket.fareId))
       .where(and(eq(schema.ticket.id, payload.t), eq(schema.ticket.eventId, eventId)));
     if (!tk) return { result: "INVALID", reason: "Entrada inexistente" };
 
@@ -103,7 +106,14 @@ export class AccessService {
         .leftJoin(schema.ticketType, eq(schema.ticketType.id, schema.seat.ticketTypeId))
         .innerJoin(schema.event, eq(schema.event.id, eventId))
         .where(eq(schema.seat.id, tk.seatId));
-      return { id: tk.id, seat: row ? seatLabel(row) : "?", event: row?.event ?? "", attendee: tk.attendeeName };
+      return {
+        id: tk.id,
+        seat: row ? seatLabel(row) : "?",
+        event: row?.event ?? "",
+        attendee: tk.attendeeName,
+        // Tarifa reducida: el portero comprueba el requisito (DNI, carné…).
+        ...(tk.fareName ? { fare: tk.fareName, requirement: tk.requirement } : {}),
+      };
     };
 
     const record = (result: ScanResult) =>

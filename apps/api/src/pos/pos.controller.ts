@@ -30,6 +30,7 @@ export class PosController {
       method: PosMethod;
       buyerEmail?: string;
       attendees?: unknown;
+      fares?: unknown;
       billing?: unknown;
     },
   ) {
@@ -38,7 +39,7 @@ export class PosController {
       { seatIds: body.seatIds, quantities: body.quantities },
       body.method,
       body.buyerEmail,
-      { attendees: body.attendees, billing: body.billing == null ? null : parseBilling(body.billing) },
+      { attendees: body.attendees, fares: body.fares, billing: body.billing == null ? null : parseBilling(body.billing) },
     );
   }
 }

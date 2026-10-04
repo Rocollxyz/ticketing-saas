@@ -20,6 +20,7 @@ import { SEATS_SOLD, type SeatsSoldEvent } from "../realtime/seat-events";
 import { validateAttendees } from "../catalog/attendee";
 import { SIMPLIFIED_LIMIT_CENTS } from "../billing/tax";
 import { type PricedLine, resolveCouponTx } from "../catalog/coupon";
+import { assignFaresTx, farePrice, priceHoldSeatsTx, resolveFaresTx } from "../catalog/fare";
 import { currentPriceCents } from "../catalog/pricing";
 import { eventSalesState, SALES_REASON_TEXT } from "../catalog/sales-rules";
 import { listTx as listFieldsTx } from "../events/attendee-fields.service";
@@ -54,6 +55,8 @@ export class CheckoutService {
     buyer: {
       name?: string | null;
       attendees?: unknown;
+      /** Tarifa de cada plaza: [{seatId?, ticketTypeId?, fareId}] (sin indicar = general). */
+      fares?: unknown;
       couponCode?: string | null;
       billing?: BillingData | null;
       method?: PaymentMethod;
@@ -105,6 +108,7 @@ export class CheckoutService {
 
       // Precio VIGENTE por asiento (anticipada/normal) vía su categoría. Queda fijado
       // aquí: es el importe del PaymentIntent aunque la anticipada caduque al pagar.
+      await assignFaresTx(tx, h.eventId, h.id, buyer.fares);
       const lines = await this.priceHoldTx(tx, h.id, seats.length);
       const subtotal = lines.reduce((acc, l) => acc + l.amountCents, 0);
       const code = buyer.couponCode?.trim();
@@ -196,9 +200,13 @@ export class CheckoutService {
    * que la tienda muestre el total antes de comprar. No gasta el uso: eso se hace al
    * crear el pedido, donde todo se vuelve a comprobar.
    */
-  async quote(eventId: string, selection: { seatIds?: string[]; quantities?: Record<string, number> }, code: string) {
+  async quote(
+    eventId: string,
+    selection: { seatIds?: string[]; quantities?: Record<string, number>; fares?: unknown },
+    code: string,
+  ) {
     return this.db.run(async (tx) => {
-      const lines: PricedLine[] = [];
+      const lines: (PricedLine & { seatId?: string })[] = [];
       if (selection.quantities) {
         const ids = Object.keys(selection.quantities);
         const types = ids.length
@@ -212,15 +220,19 @@ export class CheckoutService {
           if (!Number.isInteger(n) || n < 0 || n > 100) throw new BadRequestException("Cantidad inválida");
           for (let i = 0; i < n; i++) lines.push({ ticketTypeId: t.id, amountCents: Number(t.amount ?? 0) });
         }
-      } else if (selection.seatIds?.length) {
+      }
+      if (selection.seatIds?.length) {
         const seats = await tx
-          .select({ ticketTypeId: schema.ticketType.id, amount: currentPriceCents(schema.ticketType.id) })
+          .select({ seatId: schema.seat.id, ticketTypeId: schema.ticketType.id, amount: currentPriceCents(schema.ticketType.id) })
           .from(schema.seat)
           .innerJoin(schema.ticketType, eq(schema.ticketType.id, schema.seat.ticketTypeId))
           .where(and(eq(schema.seat.eventId, eventId), inArray(schema.seat.id, selection.seatIds.slice(0, 100))));
-        lines.push(...seats.map((s) => ({ ticketTypeId: s.ticketTypeId, amountCents: Number(s.amount ?? 0) })));
+        lines.push(...seats.map((s) => ({ seatId: s.seatId, ticketTypeId: s.ticketTypeId, amountCents: Number(s.amount ?? 0) })));
       }
       if (lines.length === 0) throw new BadRequestException("Elige primero tus entradas");
+      // Tarifas (jubilado, estudiante…): el cupón se aplica sobre el precio ya rebajado.
+      const fares = await resolveFaresTx(tx, eventId, lines, selection.fares);
+      for (const [i, f] of fares.entries()) lines[i].amountCents = farePrice(lines[i].amountCents, f);
       const { coupon, discountCents } = await resolveCouponTx(tx, code, eventId, lines);
       const subtotal = lines.reduce((a, l) => a + l.amountCents, 0);
       return { code: coupon.code, subtotalCents: subtotal, discountCents, totalCents: subtotal - discountCents };
@@ -281,20 +293,8 @@ export class CheckoutService {
 
   /** Precio vigente de cada plaza del hold. */
   private async priceHoldTx(tx: Tx, holdId: string, seatCount: number): Promise<PricedLine[]> {
-    const priced = await tx
-      .select({
-        seatId: schema.holdSeat.seatId,
-        ticketTypeId: schema.ticketType.id,
-        amount: currentPriceCents(schema.ticketType.id),
-      })
-      .from(schema.holdSeat)
-      .innerJoin(schema.seat, eq(schema.seat.id, schema.holdSeat.seatId))
-      .innerJoin(schema.ticketType, eq(schema.ticketType.id, schema.seat.ticketTypeId))
-      .where(eq(schema.holdSeat.holdId, holdId));
-    if (priced.length !== seatCount || priced.some((p) => p.amount == null)) {
-      throw new BadRequestException("Hay asientos sin precio asignado");
-    }
-    return priced.map((p) => ({ seatId: p.seatId, ticketTypeId: p.ticketTypeId, amountCents: Number(p.amount) }));
+    const priced = await priceHoldSeatsTx(tx, holdId, seatCount);
+    return priced.map((p) => ({ seatId: p.seatId, ticketTypeId: p.ticketTypeId, amountCents: p.amountCents }));
   }
 
   /**

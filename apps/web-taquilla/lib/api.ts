@@ -15,6 +15,8 @@ export interface PosTicketType {
   seating?: "RESERVED" | "GENERAL";
   precioCents: number | null;
   disponibles: number;
+  /** Tarifas reducidas (jubilado, estudiante…) con su precio para esta categoría. */
+  fares?: { id: string; name: string; requirement: string | null; precioCents: number | null }[];
 }
 
 export interface PosAttendeeField {
@@ -61,7 +63,7 @@ export interface SaleResult {
   amountCents: string;
   currency: string;
   providerRef: string;
-  tickets: { ticketId: string; seat: string; attendeeName: string | null; qr: string }[];
+  tickets: { ticketId: string; seat: string; attendeeName: string | null; fare?: string | null; qr: string }[];
 }
 
 async function authed<T>(token: string, path: string, init?: RequestInit): Promise<T> {
@@ -102,6 +104,8 @@ export const sell = (
   extra: {
     /** Datos de cada entrada: por asiento (numerado) o por categoría en orden (general). */
     attendees?: { seatId?: string; ticketTypeId: string | null; values: Record<string, string | boolean> }[];
+    /** Tarifa de cada entrada (sin indicar = general): por asiento o por categoría en orden. */
+    fares?: { seatId?: string; ticketTypeId: string | null; fareId: string }[];
     /** Factura completa a nombre de empresa o autónomo. */
     billing?: BillingData;
   } = {},

@@ -213,6 +213,39 @@ export const coupon = pgTable(
 );
 
 /**
+ * TARIFAS de un evento (general es el precio de la categoría; estas, las reducidas:
+ * jubilado, estudiante, infantil…). Se eligen por entrada sobre el mismo asiento y
+ * rebajan el precio vigente de su categoría: un % o un importe fijo. Pueden limitarse a
+ * algunas categorías y llevar un requisito que se comprueba en la puerta («DNI»).
+ */
+export const fare = pgTable(
+  "fare",
+  {
+    id: pk(),
+    tenantId: tenantId().references(() => tenant.id, { onDelete: "restrict" }),
+    eventId: uuid("event_id").notNull(),
+    name: text("name").notNull(),
+    requirement: text("requirement"), // «Presentar carné de estudiante»
+    kind: couponKind("kind").notNull(), // PERCENT (1-100) | AMOUNT (céntimos de rebaja)
+    value: integer("value").notNull(),
+    // null = todas las categorías del evento.
+    ticketTypeIds: jsonb("ticket_type_ids").$type<string[]>(),
+    active: boolean("active").notNull().default(true),
+    sortOrder: integer("sort_order").notNull().default(0),
+    ...timestamps,
+  },
+  (t) => [
+    unique("fare_tenant_id_uq").on(t.tenantId, t.id),
+    unique("fare_event_id_uq").on(t.tenantId, t.eventId, t.id),
+    foreignKey({
+      columns: [t.tenantId, t.eventId],
+      foreignColumns: [event.tenantId, event.id],
+      name: "fare_event_fk",
+    }),
+  ],
+);
+
+/**
  * Elementos del plano que NO son butacas: huecos (pasillos, separaciones) y elementos con
  * nombre (escalera, columna, barra, salida…). Ocupan una celda de la rejilla del plano;
  * ayudan a dibujar el aforo y a que el comprador se oriente. No se venden.

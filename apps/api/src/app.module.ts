@@ -7,6 +7,7 @@ import { CheckoutModule } from "./checkout/checkout.module";
 import { TenantMiddleware } from "./common/tenant.middleware";
 import { BillingModule } from "./billing/billing.module";
 import { CouponsModule } from "./coupons/coupons.module";
+import { FaresModule } from "./fares/fares.module";
 import { DatabaseModule } from "./database/database.module";
 import { EventsModule } from "./events/events.module";
 import { HealthController } from "./health/health.controller";
@@ -37,6 +38,7 @@ import { UploadsModule } from "./uploads/uploads.module";
     EventsModule,
     TicketsModule,
     CouponsModule,
+    FaresModule,
     BillingModule,
     PrivacyModule,
     ReservationModule,
