@@ -311,6 +311,19 @@ export class StorefrontService {
             options: f.options,
             ticketTypeIds: f.ticketTypeIds,
           })),
+          // Huecos (pasillos) y elementos con nombre del plano, para dibujarlo.
+          mapFeatures:
+            ev.seatingMode === "RESERVED"
+              ? await tx
+                  .select({
+                    kind: schema.seatmapFeature.kind,
+                    label: schema.seatmapFeature.label,
+                    posX: schema.seatmapFeature.posX,
+                    posY: schema.seatmapFeature.posY,
+                  })
+                  .from(schema.seatmapFeature)
+                  .where(eq(schema.seatmapFeature.eventId, eventId))
+              : [],
           // Cómo se puede pagar (tarjeta, Bizum), según las pasarelas activas.
           paymentMethods: this.payments.methods(),
           holdMinutes: HOLD_TTL_MINUTES,

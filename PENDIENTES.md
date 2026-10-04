@@ -56,6 +56,11 @@ directorio de promotores en la portada `/` (hoy es una demo fija).
   duplicar evento adaptados.
 - **Para Raquel (fase 2)**: dibujar la pista/zonas de pie en el plano sobre esto (hoy la pista
   se compra con un selector de cantidad en la caja de compra, no en el plano).
+- ✅ **Huecos y elementos del plano** (2026-10-04): en el editor, «+ Hueco (pasillo)» y
+  «+ Elemento» (Escalera, Columna, Barra, Salida, Control, Aseos o texto propio), arrastrables
+  como las butacas; el comprador ve los huecos como espacio y los elementos con su nombre.
+  Tabla `seatmap_feature` (migración 0018). **Para Raquel**: su editor nuevo debe leer y
+  guardar estos elementos (o migrarlos a sus formas) para no perderlos.
 
 ### Presentación y experiencia del comprador (análisis 2026-10-04)
 - ✅ **Ficha de evento estilo Ticketmaster**: cabecera con cartel sin recortar, información en
@@ -155,7 +160,7 @@ directorio de promotores en la portada `/` (hoy es una demo fija).
 ## Coordinación entre líneas
 - `main` nunca recibe trabajo a medias de Darrian/Raquel; se integrarán cuando estén
   maduras (decisión aparte).
-- La BD es compartida y ya tiene la migración **0017** (eventos mixtos; 0016 tema de la tienda; 0015 RGPD; 0014 facturación, 0013
+- La BD es compartida y ya tiene la migración **0018** (huecos/elementos del plano; 0017 eventos mixtos; 0016 tema de la tienda; 0015 RGPD; 0014 facturación, 0013
   reembolsos, 0012 cupones, 0011 datos de asistentes). Las claves de QR están cifradas:
   las ventanas de Darrian/Raquel necesitan la misma `MASTER_KEY` en su `.env`. Para que
   Darrian/Raquel tengan el código al día: en su ventana, «trae los cambios de main»

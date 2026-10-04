@@ -122,8 +122,17 @@ export interface EditorSeat {
   isNew?: boolean;
 }
 
+/** Elemento del plano que no es butaca: hueco (pasillo) o elemento con nombre. */
+export interface MapFeature {
+  kind: "gap" | "label";
+  label: string | null;
+  posX: number;
+  posY: number;
+}
+
 export interface Seatmap {
   event: { id: string; name: string; status: string };
+  features: MapFeature[];
   ticketTypes: TicketTypeOption[];
   seats: EditorSeat[];
 }
@@ -623,10 +632,12 @@ export interface SeatmapChanges {
   seats: SeatPatch[];
   created: NewSeat[];
   deleted: string[];
+  /** Sustituye todos los huecos y elementos del plano. */
+  features?: MapFeature[];
 }
 
 export const saveSeatmap = (token: string, eventId: string, changes: SeatmapChanges) =>
-  authed<{ updated: number; created: number; deleted: number }>(
+  authed<{ updated: number; created: number; deleted: number; features: number | null }>(
     token,
     `/events/${eventId}/seatmap`,
     { method: "PUT", body: JSON.stringify(changes) },

@@ -26,10 +26,42 @@ export interface NewSeatInput {
   ticketTypeId?: string | null;
 }
 
+/** Elemento del plano que no es butaca: hueco (pasillo) o elemento con nombre. */
+export interface MapFeatureInput {
+  kind: "gap" | "label";
+  label?: string | null;
+  posX: number;
+  posY: number;
+}
+
 export interface SeatmapChanges {
   seats?: SeatPositionInput[];
   created?: NewSeatInput[];
   deleted?: string[];
+  /** Si viene, sustituye TODOS los elementos del plano (huecos y elementos con nombre). */
+  features?: MapFeatureInput[];
+}
+
+const MAX_FEATURES = 2_000;
+
+/** Valida los elementos del plano: tipo, nombre corto y una celda libre cada uno. */
+function parseFeatures(list: unknown): MapFeatureInput[] {
+  if (!Array.isArray(list)) throw new BadRequestException("Elementos del plano inválidos");
+  if (list.length > MAX_FEATURES) throw new BadRequestException(`Máximo ${MAX_FEATURES} elementos en el plano`);
+  const cells = new Set<string>();
+  return list.map((raw) => {
+    const f = (raw ?? {}) as Record<string, unknown>;
+    if (f.kind !== "gap" && f.kind !== "label") throw new BadRequestException("Tipo de elemento inválido");
+    if (!Number.isInteger(f.posX) || !Number.isInteger(f.posY) || (f.posX as number) < 0 || (f.posY as number) < 0) {
+      throw new BadRequestException("Posición de elemento inválida");
+    }
+    const key = `${f.posX},${f.posY}`;
+    if (cells.has(key)) throw new BadRequestException("Dos elementos en la misma celda");
+    cells.add(key);
+    const label = typeof f.label === "string" ? f.label.trim().slice(0, 24) : null;
+    if (f.kind === "label" && !label) throw new BadRequestException("Un elemento con nombre necesita nombre");
+    return { kind: f.kind, label: f.kind === "label" ? label : null, posX: f.posX as number, posY: f.posY as number };
+  });
 }
 
 /** Postgres unique_violation. */
@@ -87,8 +119,19 @@ export class SeatmapService {
         .from(schema.seat)
         .where(and(eq(schema.seat.eventId, eventId), eq(schema.seat.isGeneral, false)));
 
+      const features = await tx
+        .select({
+          kind: schema.seatmapFeature.kind,
+          label: schema.seatmapFeature.label,
+          posX: schema.seatmapFeature.posX,
+          posY: schema.seatmapFeature.posY,
+        })
+        .from(schema.seatmapFeature)
+        .where(eq(schema.seatmapFeature.eventId, eventId));
+
       return {
         event: ev,
+        features,
         ticketTypes: ticketTypes.map((t) => ({
           id: t.id,
           name: t.name,
@@ -111,7 +154,8 @@ export class SeatmapService {
     const positions = changes.seats ?? [];
     const created = changes.created ?? [];
     const deleted = [...new Set(changes.deleted ?? [])];
-    if (positions.length + created.length + deleted.length === 0) {
+    const features = changes.features === undefined ? null : parseFeatures(changes.features);
+    if (positions.length + created.length + deleted.length === 0 && features === null) {
       throw new BadRequestException("Sin cambios");
     }
     if (positions.some((p) => deleted.includes(p.seatId))) {
@@ -251,7 +295,22 @@ export class SeatmapService {
         }
       }
 
-      return { updated: positions.length, created: newSeats.length, deleted: deleted.length };
+      // 4) Elementos del plano: se sustituyen todos (son pocos y sin historial).
+      if (features !== null) {
+        await tx.delete(schema.seatmapFeature).where(eq(schema.seatmapFeature.eventId, eventId));
+        if (features.length) {
+          await tx.insert(schema.seatmapFeature).values(
+            features.map((f) => ({ ...f, tenantId: getStore()!.tenantId, eventId })),
+          );
+        }
+      }
+
+      return {
+        updated: positions.length,
+        created: newSeats.length,
+        deleted: deleted.length,
+        features: features?.length ?? null,
+      };
     });
   }
 }

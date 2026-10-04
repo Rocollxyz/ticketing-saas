@@ -96,6 +96,8 @@ export interface EventDetail {
     termsUrl: string | null;
     retentionDays: number;
   };
+  /** Elementos del plano que no son butacas: huecos (pasillos) y elementos con nombre. */
+  mapFeatures?: { kind: "gap" | "label"; label: string | null; posX: number; posY: number }[];
   /** Minutos que se guardan las entradas al reservar. */
   holdMinutes?: number;
   /** Cómo se puede pagar (según las pasarelas activas). */

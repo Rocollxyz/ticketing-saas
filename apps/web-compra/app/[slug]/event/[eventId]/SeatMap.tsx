@@ -30,8 +30,12 @@ export default function SeatMap({
   const colorOf = new Map(reservedTypes.map((t, i) => [t.id, PALETTE[i % PALETTE.length]]));
   const placed = detail.seats.filter((s) => s.posX != null && s.posY != null);
   const unplaced = detail.seats.filter((s) => s.posX == null || s.posY == null);
-  const cols = placed.length ? Math.max(...placed.map((s) => s.posX!)) + 1 : 1;
-  const rows = placed.length ? Math.max(...placed.map((s) => s.posY!)) + 1 : 1;
+  // Pasillos y elementos con nombre (escalera, salida…): ocupan celdas del plano.
+  const features = detail.mapFeatures ?? [];
+  const xs = [...placed.map((s) => s.posX!), ...features.map((f) => f.posX)];
+  const ys = [...placed.map((s) => s.posY!), ...features.map((f) => f.posY)];
+  const cols = xs.length ? Math.max(...xs) + 1 : 1;
+  const rows = ys.length ? Math.max(...ys) + 1 : 1;
 
   // Letra de cada fila del plano (la más repetida entre sus butacas).
   const rowLabel = new Map<number, string>();
@@ -149,6 +153,32 @@ export default function SeatMap({
                   {label}
                 </span>
               ))}
+              {features
+                .filter((f) => f.kind === "label")
+                .map((f) => (
+                  <span
+                    key={`f${f.posX},${f.posY}`}
+                    title={f.label ?? ""}
+                    style={{
+                      gridColumnStart: f.posX + 2,
+                      gridRowStart: f.posY + 1,
+                      aspectRatio: "1",
+                      display: "grid",
+                      placeItems: "center",
+                      borderRadius: 6,
+                      border: "1px dashed var(--border)",
+                      background: "var(--surface-2)",
+                      color: "var(--faint)",
+                      fontSize: 8,
+                      lineHeight: 1.1,
+                      textAlign: "center",
+                      overflow: "hidden",
+                      padding: 1,
+                    }}
+                  >
+                    {f.label}
+                  </span>
+                ))}
               {placed.map((s) => seat(s, true))}
             </div>
           </div>

@@ -189,6 +189,33 @@ export const coupon = pgTable(
   ],
 );
 
+/**
+ * Elementos del plano que NO son butacas: huecos (pasillos, separaciones) y elementos con
+ * nombre (escalera, columna, barra, salida…). Ocupan una celda de la rejilla del plano;
+ * ayudan a dibujar el aforo y a que el comprador se oriente. No se venden.
+ */
+export const seatmapFeature = pgTable(
+  "seatmap_feature",
+  {
+    id: pk(),
+    tenantId: tenantId().references(() => tenant.id, { onDelete: "restrict" }),
+    eventId: uuid("event_id").notNull(),
+    kind: text("kind").notNull(), // gap (hueco vacío) | label (elemento con nombre)
+    label: text("label"),
+    posX: integer("pos_x").notNull(),
+    posY: integer("pos_y").notNull(),
+    ...timestamps,
+  },
+  (t) => [
+    unique("seatmap_feature_cell_uq").on(t.eventId, t.posX, t.posY),
+    foreignKey({
+      columns: [t.tenantId, t.eventId],
+      foreignColumns: [event.tenantId, event.id],
+      name: "seatmap_feature_event_fk",
+    }),
+  ],
+);
+
 export const seat = pgTable(
   "seat",
   {

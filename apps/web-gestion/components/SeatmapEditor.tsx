@@ -5,14 +5,22 @@ import {
   type EditorSeat,
   euros,
   getSeatmap,
+  type MapFeature,
   saveSeatmap,
   type Seatmap,
 } from "../lib/api";
+
+/** Hueco o elemento con nombre en el editor (id temporal: se guardan todos de una vez). */
+type EditorFeature = MapFeature & { id: string };
+
+/** Elementos con nombre más habituales (además de texto libre). */
+const FEATURE_PRESETS = ["Escalera", "Columna", "Barra", "Salida", "Control", "Aseos"];
 
 const CELL = 72; // px por celda de la rejilla
 const PALETTE = ["#5b9dff", "#3ecf8e", "#e0a23c", "#c678dd", "#ef6f6f"];
 
 interface DragState {
+  /** Butaca o elemento (los elementos llevan id «f:…»). */
   seatId: string;
   x: number;
   y: number;
@@ -32,6 +40,8 @@ export default function SeatmapEditor({ token, eventId }: { token: string; event
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [deleted, setDeleted] = useState<string[]>([]);
+  const [features, setFeatures] = useState<EditorFeature[]>([]);
+  const [featureLabel, setFeatureLabel] = useState(FEATURE_PRESETS[0]);
   const [newFila, setNewFila] = useState("A");
   const [newNumero, setNewNumero] = useState("");
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -41,6 +51,7 @@ export default function SeatmapEditor({ token, eventId }: { token: string; event
     return getSeatmap(token, eventId).then((m) => {
       setMap(m);
       setSeats(m.seats);
+      setFeatures((m.features ?? []).map((f, i) => ({ ...f, id: `f:${i}` })));
       setDeleted([]);
       setSelected(null);
       setDirty(false);
@@ -62,15 +73,22 @@ export default function SeatmapEditor({ token, eventId }: { token: string; event
 
   const placed = seats.filter((s) => s.posX != null && s.posY != null);
   const unplaced = seats.filter((s) => s.posX == null || s.posY == null);
-  const cols = Math.max(6, placed.length ? Math.max(...placed.map((s) => s.posX!)) + 2 : 0);
-  const rows = Math.max(4, placed.length ? Math.max(...placed.map((s) => s.posY!)) + 2 : 0);
+  const xs = [...placed.map((s) => s.posX!), ...features.map((f) => f.posX)];
+  const ys = [...placed.map((s) => s.posY!), ...features.map((f) => f.posY)];
+  const cols = Math.max(6, xs.length ? Math.max(...xs) + 2 : 0);
+  const rows = Math.max(4, ys.length ? Math.max(...ys) + 2 : 0);
+
+  function patchFeature(id: string, patch: Partial<EditorFeature>) {
+    setFeatures((prev) => prev.map((f) => (f.id === id ? { ...f, ...patch } : f)));
+    setDirty(true);
+  }
 
   function patchSeat(seatId: string, patch: Partial<EditorSeat>) {
     setSeats((prev) => prev.map((s) => (s.id === seatId ? { ...s, ...patch } : s)));
     setDirty(true);
   }
 
-  function onPointerDown(e: React.PointerEvent, s: EditorSeat) {
+  function onPointerDown(e: React.PointerEvent, s: { id: string; posX: number | null; posY: number | null }) {
     const canvas = canvasRef.current;
     if (!canvas || s.posX == null || s.posY == null) return;
     const rect = canvas.getBoundingClientRect();
@@ -103,18 +121,21 @@ export default function SeatmapEditor({ token, eventId }: { token: string; event
     const clamp = (v: number, max: number) => Math.max(0, Math.min(max, v));
     const col = clamp(Math.round(drag.x / CELL), cols - 1);
     const row = clamp(Math.round(drag.y / CELL), rows - 1);
-    // Si la celda destino está ocupada por otro asiento, intercambia posiciones.
-    const occupant = seats.find((s) => s.id !== drag.seatId && s.posX === col && s.posY === row);
-    const moving = seats.find((s) => s.id === drag.seatId)!;
-    if (occupant) patchSeat(occupant.id, { posX: moving.posX, posY: moving.posY });
-    patchSeat(drag.seatId, { posX: col, posY: row });
+    // Si la celda destino está ocupada (butaca o elemento), intercambian posiciones.
+    const items = [...seats, ...features];
+    const moving = items.find((s) => s.id === drag.seatId)!;
+    const occupant = items.find((s) => s.id !== drag.seatId && s.posX === col && s.posY === row);
+    const move = (id: string, posX: number | null, posY: number | null) =>
+      id.startsWith("f:") ? patchFeature(id, { posX: posX ?? 0, posY: posY ?? 0 }) : patchSeat(id, { posX, posY });
+    if (occupant) move(occupant.id, moving.posX, moving.posY);
+    move(drag.seatId, col, row);
     setDrag(null);
   }
 
   // Primera celda libre (orden por filas); la rejilla siempre deja una fila/columna
   // de margen, así que siempre hay hueco.
   function firstFreeCell(): { x: number; y: number } {
-    const taken = new Set(placed.map((p) => `${p.posX},${p.posY}`));
+    const taken = new Set([...placed, ...features].map((p) => `${p.posX},${p.posY}`));
     for (let y = 0; y < rows; y++) {
       for (let x = 0; x < cols; x++) {
         if (!taken.has(`${x},${y}`)) return { x, y };
@@ -151,7 +172,23 @@ export default function SeatmapEditor({ token, eventId }: { token: string; event
     setDirty(true);
   }
 
+  function addFeature(kind: "gap" | "label") {
+    const label = kind === "label" ? featureLabel.trim() : null;
+    if (kind === "label" && !label) return;
+    const { x, y } = firstFreeCell();
+    const id = `f:new${++tempSeq.current}`;
+    setFeatures((prev) => [...prev, { id, kind, label, posX: x, posY: y }]);
+    setSelected(id);
+    setDirty(true);
+  }
+
   function removeSelected() {
+    if (selected?.startsWith("f:")) {
+      setFeatures((prev) => prev.filter((f) => f.id !== selected));
+      setSelected(null);
+      setDirty(true);
+      return;
+    }
     const s = seats.find((x) => x.id === selected);
     if (!s) return;
     setSeats((prev) => prev.filter((x) => x.id !== s.id));
@@ -179,6 +216,7 @@ export default function SeatmapEditor({ token, eventId }: { token: string; event
             ticketTypeId: s.ticketTypeId,
           })),
         deleted,
+        features: features.map(({ kind, label, posX, posY }) => ({ kind, label, posX, posY })),
       });
       // Recarga para obtener los ids reales de los asientos creados.
       await load();
@@ -195,12 +233,14 @@ export default function SeatmapEditor({ token, eventId }: { token: string; event
   }
 
   const sel = seats.find((s) => s.id === selected) ?? null;
+  const selFeature = features.find((f) => f.id === selected) ?? null;
 
   return (
     <div>
       <p style={{ fontSize: 13, color: "#9aa3b2", marginTop: 0 }}>
-        Arrastra los asientos para colocarlos. Selecciona uno y pulsa una categoría para asignarla.
-        Los cambios no se aplican hasta pulsar «Guardar plano».
+        Arrastra los asientos para colocarlos. Selecciona uno y pulsa una categoría para asignarla. Usa{" "}
+        <strong>huecos</strong> para pasillos y separaciones, y <strong>elementos</strong> (escalera, salida…) para
+        que el comprador se oriente. Los cambios no se aplican hasta pulsar «Guardar plano».
       </p>
 
       {/* Paleta de categorías */}
@@ -245,7 +285,11 @@ export default function SeatmapEditor({ token, eventId }: { token: string; event
           sin categoría
         </button>
         <span style={{ marginLeft: "auto", fontSize: 12, color: "#7a8190" }}>
-          {sel ? `Seleccionado: ${sel.fila}${sel.numero}` : "Ningún asiento seleccionado"}
+          {sel
+            ? `Seleccionado: ${sel.fila}${sel.numero}`
+            : selFeature
+              ? `Seleccionado: ${selFeature.kind === "gap" ? "hueco" : selFeature.label}`
+              : "Nada seleccionado"}
         </span>
       </div>
 
@@ -276,11 +320,44 @@ export default function SeatmapEditor({ token, eventId }: { token: string; event
         {duplicate && <span style={{ fontSize: 12, color: "#e0a23c" }}>{fila}{numero} ya existe</span>}
         <button
           onClick={removeSelected}
-          disabled={!sel}
-          style={{ ...toolBtn, color: "#ff8a8a", opacity: sel ? 1 : 0.5, marginLeft: "auto" }}
+          disabled={!sel && !selFeature}
+          style={{ ...toolBtn, color: "#ff8a8a", opacity: sel || selFeature ? 1 : 0.5, marginLeft: "auto" }}
         >
-          Eliminar {sel ? `${sel.fila}${sel.numero}` : "seleccionado"}
+          Eliminar {sel ? `${sel.fila}${sel.numero}` : selFeature ? (selFeature.label ?? "hueco") : "seleccionado"}
         </button>
+      </div>
+
+      {/* Huecos y elementos del plano */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", margin: "12px 0" }}>
+        <button onClick={() => addFeature("gap")} style={toolBtn} title="Celda vacía: pasillos y separaciones">
+          + Hueco (pasillo)
+        </button>
+        <span style={{ width: 8 }} />
+        <input
+          list="feature-presets"
+          value={featureLabel}
+          onChange={(e) => setFeatureLabel(e.target.value.slice(0, 24))}
+          style={{ ...field, width: 120 }}
+          aria-label="Nombre del elemento"
+        />
+        <datalist id="feature-presets">
+          {FEATURE_PRESETS.map((p) => (
+            <option key={p} value={p} />
+          ))}
+        </datalist>
+        <button onClick={() => addFeature("label")} disabled={!featureLabel.trim()} style={toolBtn}>
+          + Elemento
+        </button>
+        {selFeature?.kind === "label" && (
+          <label style={{ fontSize: 13, color: "#9aa3b2", marginLeft: "auto" }}>
+            Nombre{" "}
+            <input
+              value={selFeature.label ?? ""}
+              onChange={(e) => patchFeature(selFeature.id, { label: e.target.value.slice(0, 24) })}
+              style={{ ...field, width: 120 }}
+            />
+          </label>
+        )}
       </div>
 
       {/* Escenario */}
@@ -317,6 +394,36 @@ export default function SeatmapEditor({ token, eventId }: { token: string; event
           touchAction: "none",
         }}
       >
+        {features.map((f) => {
+          const isDragging = drag?.seatId === f.id;
+          const isSel = selected === f.id;
+          return (
+            <button
+              key={f.id}
+              onPointerDown={(e) => onPointerDown(e, f)}
+              title={f.kind === "gap" ? "Hueco (pasillo)" : f.label ?? ""}
+              style={{
+                position: "absolute",
+                left: isDragging ? drag!.x : f.posX * CELL,
+                top: isDragging ? drag!.y : f.posY * CELL,
+                width: CELL - 10,
+                height: CELL - 10,
+                margin: 5,
+                borderRadius: 8,
+                border: isSel ? "2px solid #fff" : `1px dashed ${f.kind === "gap" ? "#3a4150" : "#7a8190"}`,
+                background: f.kind === "gap" ? "transparent" : "#2b313c",
+                color: f.kind === "gap" ? "#5d6575" : "#c9d0da",
+                fontSize: 11,
+                cursor: "grab",
+                zIndex: isDragging ? 10 : 1,
+                touchAction: "none",
+                overflow: "hidden",
+              }}
+            >
+              {f.kind === "gap" ? "hueco" : f.label}
+            </button>
+          );
+        })}
         {placed.map((s) => {
           const isDragging = drag?.seatId === s.id;
           const left = isDragging ? drag!.x : s.posX! * CELL;

@@ -329,6 +329,12 @@ export class EventsService {
           );
         }
       }
+      const features = await tx.select().from(schema.seatmapFeature).where(eq(schema.seatmapFeature.eventId, eventId));
+      if (features.length) {
+        await tx.insert(schema.seatmapFeature).values(
+          features.map(({ id: _i, createdAt: _c, updatedAt: _u, eventId: _e, ...f }) => ({ ...f, tenantId, eventId: copy.id })),
+        );
+      }
       // Generales: mismo aforo (después del plano, para reutilizar su zona).
       for (const tt of types.filter((t) => t.seating === "GENERAL")) {
         const [{ n }] = await tx
