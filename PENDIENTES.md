@@ -57,9 +57,12 @@ directorio de promotores en la portada `/` (hoy es una demo fija).
 - ✅ **Página del promotor** en el mismo estilo: portada con logo, evento destacado (el próximo
   a la venta), cartelera en rejilla de carteles con la fecha encima, filtros en botones
   (fecha, categoría, ciudad), «Sobre…» con contacto y redes a la derecha, eventos pasados.
-- Siguientes, por orden: **integración en la web del promotor** (botón que abre la compra
-  encima de su web + módulo incrustado de cartelera/evento; Redsys/3DS a pantalla completa),
-  **Google y redes** (datos estructurados `Event`, imagen para compartir generada, sitemap),
+- ✅ **Integración en la web del promotor** (consola «Integrar en tu web»): `embed.js` +
+  `data-entradas-cartelera` / `data-entradas-evento` (módulos que ajustan su altura) y
+  `data-entradas-comprar` (compra en ventana flotante). Rutas `/embed/*` (solo esas se dejan
+  incrustar: `frame-ancestors`); el pago con tarjeta termina dentro del módulo; Redsys/Bizum y
+  métodos con redirección van a la ventana completa. Probado con una web externa y compra real.
+- Siguientes, por orden: **Google y redes** (datos estructurados `Event`, imagen para compartir generada, sitemap),
   **dominio propio**
   por promotor, **después de comprar** (entradas visibles, Wallet, calendario) y la **portada
   `/`**. Decisión pendiente del usuario: marca blanca (recomendado) o escaparate propio.
@@ -88,6 +91,10 @@ directorio de promotores en la portada `/` (hoy es una demo fija).
 - **TicketBAI** (País Vasco) y **SII**: según dónde estén los promotores (gestoría).
 - **Bizum**: probado hasta la redirección; el pago completo pide un móvil de pruebas del banco.
 - **Datáfono real**: la devolución de una venta con tarjeta en taquilla se trata «en mano».
+
+- **Integración web**: `/embed/*` se deja incrustar en CUALQUIER web; limitarlo a los dominios
+  que declare cada promotor. La salida a Redsys desde un módulo (ventana completa) no está
+  probada con un pago real dentro de un iframe.
 
 **Después de producción:**
 - El comprador no puede pedir factura completa tras comprar (lo hace el promotor): llegará

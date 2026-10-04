@@ -62,7 +62,20 @@ interface ActiveHold {
 
 const muted: React.CSSProperties = { fontSize: 14, color: "var(--muted)" };
 
-export default function EventClient({ slug, detail: initial }: { slug: string; detail: EventDetail }) {
+export default function EventClient({
+  slug,
+  detail: initial,
+  embed = false,
+  backToList = false,
+}: {
+  slug: string;
+  detail: EventDetail;
+  /** Incrustado en la web del promotor (iframe): sin salidas y la compra dentro del módulo. */
+  embed?: boolean;
+  /** Incrustado y abierto desde la cartelera incrustada: se ofrece volver a ella. */
+  backToList?: boolean;
+}) {
+  const base = embed ? `/embed/${slug}` : `/${slug}`;
   const router = useRouter();
   const [detail, setDetail] = useState(initial);
   const { event: ev, venue, sales } = detail;
@@ -306,12 +319,13 @@ export default function EventClient({ slug, detail: initial }: { slug: string; d
     // Pasarela por redirección (Redsys: tarjeta o Bizum): el navegador va a pagar allí y
     // vuelve a la página de éxito, que confirma el pago firmado.
     if (co.redirect) {
-      submitRedirect(co.redirect.url, co.redirect.fields);
+      // Redsys/Bizum no se pueden mostrar dentro de un iframe: van a la ventana completa.
+      submitRedirect(co.redirect.url, co.redirect.fields, embed);
       return;
     }
     // Pedido gratuito: ya está emitido, no hay pago.
     if (co.free) {
-      router.push(`/${slug}/success?event=${ev.id}`);
+      router.push(`${base}/success?event=${ev.id}`);
       return;
     }
     setHeldSeats(null);
@@ -437,7 +451,7 @@ export default function EventClient({ slug, detail: initial }: { slug: string; d
                 fonts: [{ cssSrc: "https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" }],
               }}
             >
-              <PaymentForm slug={slug} eventId={ev.id} total={checkout.amountCents} email={email.trim()} deadline={hold.deadline} />
+              <PaymentForm slug={slug} base={base} eventId={ev.id} total={checkout.amountCents} email={email.trim()} deadline={hold.deadline} />
             </Elements>
           )}
         </>
@@ -552,11 +566,18 @@ export default function EventClient({ slug, detail: initial }: { slug: string; d
   );
 
   return (
-    <div className="theme-root" data-theme={theme} style={themeVars}>
+    <div className={`theme-root${embed ? " embed" : ""}`} data-theme={theme} style={themeVars}>
     <main className="page-wide">
-      <a className="back" href={`/${slug}`}>
-        <ArrowLeft size={16} /> {detail.organizer ? `Más eventos de ${detail.organizer.name}` : "Todos los eventos"}
-      </a>
+      {embed && backToList && (
+        <a className="back" href={`/embed/${slug}`}>
+          <ArrowLeft size={16} /> Cartelera
+        </a>
+      )}
+      {!embed && (
+        <a className="back" href={`/${slug}`}>
+          <ArrowLeft size={16} /> {detail.organizer ? `Más eventos de ${detail.organizer.name}` : "Todos los eventos"}
+        </a>
+      )}
 
       <header className="ev-hero">
         {ev.imageUrl && <div className="ev-hero-bg" style={{ backgroundImage: `url("${ev.imageUrl}")` }} />}
@@ -686,7 +707,7 @@ export default function EventClient({ slug, detail: initial }: { slug: string; d
             </section>
           )}
 
-          {detail.organizer && (
+          {detail.organizer && !embed && (
             <a href={`/${slug}`} className="card" style={{ display: "flex", alignItems: "center", gap: 12, color: "inherit", textDecoration: "none" }}>
               <span
                 style={{
@@ -714,7 +735,7 @@ export default function EventClient({ slug, detail: initial }: { slug: string; d
         </div>
       </div>
 
-      {sales.open && !hold && !expired && (
+      {sales.open && !hold && !expired && !embed && (
         <div className={`mobile-bar ${panelVisible ? "hidden" : ""}`}>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 12, color: "var(--muted)" }}>{count > 0 ? `${count} entrada(s)` : "Entradas"}</div>
@@ -1162,11 +1183,16 @@ function PrivacyNotice({ p }: { p: NonNullable<EventDetail["privacy"]> }) {
   );
 }
 
-/** Envía el navegador a la pasarela con un formulario POST (así lo exige Redsys). */
-function submitRedirect(url: string, fields: Record<string, string>) {
+/**
+ * Envía el navegador a la pasarela con un formulario POST (así lo exige Redsys). Desde un
+ * módulo incrustado se abre en la ventana completa (`_top`): el banco no deja pagar dentro
+ * de un iframe; al terminar, el comprador vuelve a la tienda.
+ */
+function submitRedirect(url: string, fields: Record<string, string>, top = false) {
   const form = document.createElement("form");
   form.method = "POST";
   form.action = url;
+  if (top) form.target = "_top";
   for (const [name, value] of Object.entries(fields)) {
     const input = document.createElement("input");
     input.type = "hidden";
@@ -1180,17 +1206,20 @@ function submitRedirect(url: string, fields: Record<string, string>) {
 
 function PaymentForm({
   slug,
+  base,
   eventId,
   total,
   email,
   deadline,
 }: {
   slug: string;
+  base: string;
   eventId: string;
   total: number;
   email: string;
   deadline: number;
 }) {
+  const router = useRouter();
   const stripe = useStripe();
   const elements = useElements();
   const [paying, setPaying] = useState(false);
@@ -1204,15 +1233,23 @@ function PaymentForm({
     }
     setPaying(true);
     setError(null);
-    const { error } = await stripe.confirmPayment({
+    // Sin redirección salvo que el método la exija (tarjeta: no). Así, incrustada en la web
+    // del promotor, la compra termina DENTRO del módulo. Si hay redirección (p. ej. Klarna),
+    // Stripe navega la ventana completa: vuelve a la página de éxito normal de la tienda.
+    const { error, paymentIntent } = await stripe.confirmPayment({
       elements,
       confirmParams: {
         return_url: `${window.location.origin}/${slug}/success?event=${eventId}`,
       },
+      redirect: "if_required",
     });
     if (error) {
       setError(error.message ?? "El pago no se pudo completar");
       setPaying(false);
+      return;
+    }
+    if (paymentIntent && (paymentIntent.status === "succeeded" || paymentIntent.status === "processing")) {
+      router.push(`${base}/success?event=${eventId}`);
     }
   }
 

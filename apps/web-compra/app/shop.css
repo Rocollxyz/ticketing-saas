@@ -229,7 +229,14 @@ a { color: var(--accent); }
   .pr-grid { grid-template-columns: minmax(0, 1fr); gap: 24px; }
   .pr-aside { position: static; }
   .featured { grid-template-columns: 1fr; gap: 0; }
-  .featured-img { min-height: 0; aspect-ratio: 16 / 10; }
+  .featured-img { min-height: 0; aspect-ratio: 16 / 10; max-height: 300px; width: 100%; }
   .featured-body { padding: 18px; }
   .ev-cards { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
 }
+
+/* ─── Módulo incrustado (iframe en la web del promotor) ───────────── */
+.embed { min-height: 0; }
+/* Claro: transparente, para fundirse con el fondo de la web del promotor. */
+.embed[data-theme="light"] { background: transparent; }
+.embed .page-wide { padding: 16px 16px 24px; }
+html:has(.embed), html:has(.embed) body { background: transparent; }

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import BillingPanel from "../components/BillingPanel";
 import EventEditor from "../components/EventEditor";
+import IntegratePanel from "../components/IntegratePanel";
 import EventsList from "../components/EventsList";
 import PrivacyPanel from "../components/PrivacyPanel";
 import ProfileForm from "../components/ProfileForm";
@@ -12,7 +13,7 @@ export default function Page() {
   const [token, setToken] = useState<string | null>(null);
   const [slug, setSlug] = useState("");
   const [eventId, setEventId] = useState<string | null>(null);
-  const [section, setSection] = useState<"events" | "profile" | "billing" | "privacy">("events");
+  const [section, setSection] = useState<"events" | "profile" | "billing" | "privacy" | "integrate">("events");
 
   // Sesión persistida (dev). En producción iría en cookie httpOnly.
   useEffect(() => {
@@ -70,6 +71,9 @@ export default function Page() {
         <button className={`tab ${section === "profile" ? "active" : ""}`} onClick={() => setSection("profile")}>
           Perfil público
         </button>
+        <button className={`tab ${section === "integrate" ? "active" : ""}`} onClick={() => setSection("integrate")}>
+          Integrar en tu web
+        </button>
         <button className={`tab ${section === "billing" ? "active" : ""}`} onClick={() => setSection("billing")}>
           Facturación
         </button>
@@ -80,6 +84,8 @@ export default function Page() {
 
       {section === "profile" ? (
         <ProfileForm token={token} />
+      ) : section === "integrate" ? (
+        <IntegratePanel token={token} slug={slug} />
       ) : section === "billing" ? (
         <BillingPanel token={token} />
       ) : section === "privacy" ? (

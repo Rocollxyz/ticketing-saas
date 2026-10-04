@@ -65,7 +65,16 @@ function priceLabel(e: ShopEvent) {
  * Cartelera del promotor: evento destacado (el próximo a la venta), filtros en botones y
  * rejilla de carteles. Todo en el navegador: un promotor tiene pocos eventos a la vez.
  */
-export default function EventsBrowser({ slug, events, past }: { slug: string; events: ShopEvent[]; past: PastEvent[] }) {
+export default function EventsBrowser({
+  base,
+  events,
+  past,
+}: {
+  /** Ruta base de los enlaces: `/promotor` o `/embed/promotor` (módulo incrustado). */
+  base: string;
+  events: ShopEvent[];
+  past: PastEvent[];
+}) {
   const [q, setQ] = useState("");
   const [category, setCategory] = useState<string | null>(null);
   const [city, setCity] = useState<string | null>(null);
@@ -82,6 +91,8 @@ export default function EventsBrowser({ slug, events, past }: { slug: string; ev
 
   const now = new Date();
   const query = norm(q.trim());
+  // Incrustada: la ficha sabe que viene de la cartelera para ofrecer «volver».
+  const eventHref = (id: string) => `${base}/event/${id}${base.startsWith("/embed/") ? "?desde=cartelera" : ""}`;
   const filtering = !!(query || category || city || when !== "all");
   const shown = events.filter(
     (e) =>
@@ -104,7 +115,7 @@ export default function EventsBrowser({ slug, events, past }: { slug: string; ev
   return (
     <div>
       {featured && (
-        <Link href={`/${slug}/event/${featured.id}`} className="featured">
+        <Link href={eventHref(featured.id)} className="featured">
           <div className={`featured-img ${featured.imageUrl ? "" : "no-img"}`} style={imgStyle(featured.imageUrl)}>
             {!featured.imageUrl && <Ticket size={44} />}
           </div>
@@ -182,7 +193,7 @@ export default function EventsBrowser({ slug, events, past }: { slug: string; ev
           {grid.map((e) => {
             const dm = dayMonth(e.startsAt, e.timezone);
             return (
-              <Link key={e.id} href={`/${slug}/event/${e.id}`} className="ev-card">
+              <Link key={e.id} href={eventHref(e.id)} className="ev-card">
                 <div className={`ev-card-img ${e.imageUrl ? "" : "no-img"}`} style={imgStyle(e.imageUrl)}>
                   {!e.imageUrl && <Ticket size={36} />}
                   {dm && (
