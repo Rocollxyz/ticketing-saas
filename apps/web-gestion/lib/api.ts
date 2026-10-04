@@ -67,6 +67,9 @@ export interface TicketTypeData {
   minPerOrder: number;
   maxPerOrder: number | null;
   sortOrder: number;
+  /** Impuesto incluido, en centésimas de punto (1000 = 10 %). */
+  taxRateBp: number;
+  taxExemptReason: string | null;
 }
 
 export interface EventDetail {
@@ -91,6 +94,8 @@ export interface TicketTypeInput {
   minPerOrder?: number;
   maxPerOrder?: number | null;
   sortOrder?: number;
+  taxRateBp?: number;
+  taxExemptReason?: string | null;
 }
 
 export interface TicketTypeOption {
@@ -226,6 +231,13 @@ export interface Profile {
   tiktok: string | null;
   x: string | null;
   youtube: string | null;
+  fiscalName: string | null;
+  taxId: string | null;
+  fiscalAddress: string | null;
+  fiscalPostalCode: string | null;
+  fiscalCity: string | null;
+  fiscalProvince: string | null;
+  taxRegime: "IVA" | "IGIC";
 }
 
 export const getProfile = (token: string) => authed<Profile>(token, "/profile");
@@ -411,23 +423,8 @@ export const issueManualTickets = (
   });
 
 /** Descarga el CSV de asistentes (con los filtros actuales) como fichero. */
-export async function downloadTicketsCsv(token: string, eventId: string, f: TicketFilters) {
-  const r = await fetch(`${API_URL}/events/${eventId}/tickets/export.csv${ticketQuery(f)}`, {
-    headers: { Authorization: `Bearer ${token}` },
-    cache: "no-store",
-  });
-  if (!r.ok) {
-    const body = await r.json().catch(() => null);
-    throw new ApiError(r.status, body?.message ?? `Error ${r.status}`);
-  }
-  const name = /filename="([^"]+)"/.exec(r.headers.get("content-disposition") ?? "")?.[1] ?? "asistentes.csv";
-  const url = URL.createObjectURL(await r.blob());
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = name;
-  a.click();
-  URL.revokeObjectURL(url);
-}
+export const downloadTicketsCsv = (token: string, eventId: string, f: TicketFilters) =>
+  downloadFile(token, `/events/${eventId}/tickets/export.csv${ticketQuery(f)}`, "asistentes.csv");
 
 export type CouponKind = "PERCENT" | "AMOUNT";
 
@@ -460,6 +457,90 @@ export const updateCoupon = (token: string, id: string, data: CouponInput) =>
 
 export const deleteCoupon = (token: string, id: string) =>
   authed<{ ok: true }>(token, `/coupons/${id}`, { method: "DELETE" });
+
+export interface BillingData {
+  name: string;
+  taxId: string;
+  address: string;
+  postalCode: string;
+  city: string;
+  country?: string;
+}
+
+export interface InvoiceRow {
+  id: string;
+  fullNumber: string;
+  kind: "SIMPLIFIED" | "FULL" | "RECTIFYING";
+  aeatType: string;
+  kindLabel: string;
+  issuedAt: string;
+  orderId: string;
+  customer: BillingData | null;
+  taxName: string;
+  baseCents: number;
+  taxCents: number;
+  totalCents: number;
+  rectifiesId: string | null;
+  buyerEmail: string | null;
+  buyerName: string | null;
+  eventName: string;
+  replaced: boolean;
+  /** Simplificada de más de 400 €: hay que canjearla por una completa. */
+  needsFull: boolean;
+}
+
+export interface InvoiceList {
+  fiscalReady: boolean;
+  pendingOrders: number;
+  pendingRectifications: number;
+  invoices: InvoiceRow[];
+}
+
+const rangeQuery = (from?: string, to?: string) => {
+  const p = new URLSearchParams();
+  if (from) p.set("from", from);
+  if (to) p.set("to", to);
+  const s = p.toString();
+  return s ? `?${s}` : "";
+};
+
+export const listInvoices = (token: string, from?: string, to?: string) =>
+  authed<InvoiceList>(token, `/invoices${rangeQuery(from, to)}`);
+
+export const issuePendingInvoices = (token: string) =>
+  authed<{ issued: number; rectifications: number; skipped: string | null; remaining: number }>(
+    token,
+    "/invoices/issue-pending",
+    { method: "POST" },
+  );
+
+export const replaceInvoice = (token: string, id: string, customer: BillingData) =>
+  authed<{ id: string; fullNumber: string }>(token, `/invoices/${id}/replace`, {
+    method: "POST",
+    body: JSON.stringify({ customer }),
+  });
+
+/** Descarga un fichero autenticado (PDF, CSV) con el nombre que da la API. */
+export async function downloadFile(token: string, path: string, fallback: string) {
+  const r = await fetch(`${API_URL}${path}`, { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
+  if (!r.ok) {
+    const body = await r.json().catch(() => null);
+    throw new ApiError(r.status, body?.message ?? `Error ${r.status}`);
+  }
+  const name = /filename="([^"]+)"/.exec(r.headers.get("content-disposition") ?? "")?.[1] ?? fallback;
+  const url = URL.createObjectURL(await r.blob());
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export const downloadInvoicePdf = (token: string, id: string) =>
+  downloadFile(token, `/invoices/${id}/pdf`, "factura.pdf");
+
+export const downloadInvoiceBook = (token: string, from?: string, to?: string) =>
+  downloadFile(token, `/invoices/export.csv${rangeQuery(from, to)}`, "libro-facturas.csv");
 
 export type ImageKind = "event" | "cover" | "logo";
 

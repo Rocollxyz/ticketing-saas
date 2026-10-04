@@ -393,6 +393,11 @@ export class TicketsService {
         .update(schema.refund)
         .set({ status: "SUCCEEDED", updatedAt: new Date() })
         .where(eq(schema.refund.id, refundId));
+      await tx.insert(schema.outbox).values({
+        tenantId: getStore()!.tenantId,
+        type: "invoice.rectify",
+        payload: { refundId },
+      });
       await this.auditTx(tx, "refund.manual_done", { refundId, amountCents: r.amountCents });
       return { ok: true as const };
     });

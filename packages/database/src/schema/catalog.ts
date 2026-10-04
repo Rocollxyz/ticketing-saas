@@ -101,6 +101,10 @@ export const ticketType = pgTable(
     minPerOrder: integer("min_per_order").notNull().default(1),
     maxPerOrder: integer("max_per_order"),
     sortOrder: integer("sort_order").notNull().default(0),
+    // Impuesto incluido en el precio, en centésimas de punto: 1000 = 10 % (espectáculos
+    // culturales en vivo, art. 91.Uno.2.6º LIVA). 0 + motivo = exenta.
+    taxRateBp: integer("tax_rate_bp").notNull().default(1000),
+    taxExemptReason: text("tax_exempt_reason"),
     ...timestamps,
   },
   (t) => [

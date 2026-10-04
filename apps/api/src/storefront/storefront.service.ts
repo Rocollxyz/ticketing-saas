@@ -7,6 +7,7 @@ import { seatLabel } from "../catalog/seat-label";
 import { AdminDb } from "../database/admin-db.service";
 import { tenantContext } from "../database/tenant-context";
 import { TenantDb } from "../database/tenant-db.service";
+import { parseBilling } from "../billing/billing.service";
 import { CheckoutService } from "../checkout/checkout.service";
 import { hasActiveCouponTx } from "../catalog/coupon";
 import { listTx as listFieldsTx } from "../events/attendee-fields.service";
@@ -400,8 +401,9 @@ export class StorefrontService {
     slug: string,
     holdId: string,
     buyerEmail?: string,
-    buyer: { name?: unknown; attendees?: unknown; couponCode?: unknown } = {},
+    buyer: { name?: unknown; attendees?: unknown; couponCode?: unknown; billing?: unknown } = {},
   ) {
+    if (!UUID_RE.test(holdId ?? "")) throw new BadRequestException("Reserva inválida");
     const email = buyerEmail?.trim().toLowerCase();
     if (!email || email.length > 254 || !EMAIL_RE.test(email)) {
       throw new BadRequestException("Email del comprador obligatorio y válido");
@@ -414,6 +416,7 @@ export class StorefrontService {
         name: buyer.name as string | undefined,
         attendees: buyer.attendees,
         couponCode: couponCodeOf(buyer.couponCode),
+        billing: buyer.billing == null ? null : parseBilling(buyer.billing),
       }),
     );
   }

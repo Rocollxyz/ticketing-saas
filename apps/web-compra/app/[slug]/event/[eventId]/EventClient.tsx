@@ -16,6 +16,7 @@ import {
   type ShopTicketType,
 } from "../../../../lib/api";
 import AttendeesForm from "./AttendeesForm";
+import BillingBox, { billingComplete, type BillingInput, EMPTY_BILLING } from "./BillingBox";
 import CouponBox, { type AppliedCoupon } from "./CouponBox";
 import { inputStyle } from "./styles";
 import {
@@ -63,6 +64,8 @@ export default function EventClient({ slug, detail: initial }: { slug: string; d
   const [live, setLive] = useState(false);
   const [email, setEmail] = useState("");
   const [coupon, setCoupon] = useState<AppliedCoupon | null>(null);
+  const [wantsInvoice, setWantsInvoice] = useState(false);
+  const [billing, setBilling] = useState<BillingInput>(EMPTY_BILLING);
   const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 
   // sessionId estable de esta pestaña: lo enviamos al reservar para que el servidor
@@ -195,7 +198,12 @@ export default function EventClient({ slug, detail: initial }: { slug: string; d
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [couponCode, count, total]);
 
-  const canBuy = sales.open && count > 0 && emailOk && !!buyerName.trim() && !ruleError && !loading;
+  // Más de 400 €: la factura simplificada no vale y los datos de facturación son obligatorios.
+  const invoiceRequired = payable > 40_000;
+  const sendBilling = wantsInvoice || invoiceRequired;
+  const billingOk = !sendBilling || billingComplete(billing);
+
+  const canBuy = billingOk && sales.open && count > 0 && emailOk && !!buyerName.trim() && !ruleError && !loading;
 
   function toggle(seatId: string, isAvailable: boolean) {
     if (!isAvailable || hold) return;
@@ -264,6 +272,7 @@ export default function EventClient({ slug, detail: initial }: { slug: string; d
         buyerName: buyerName.trim() || undefined,
         attendees,
         couponCode: coupon?.code,
+        billing: sendBilling ? billing : undefined,
       }),
     });
     if (!coRes.ok) {
@@ -491,6 +500,15 @@ export default function EventClient({ slug, detail: initial }: { slug: string; d
               }}
             />
           </label>
+          {payable > 0 && (
+            <BillingBox
+              enabled={wantsInvoice}
+              required={invoiceRequired}
+              value={billing}
+              onEnabled={setWantsInvoice}
+              onChange={setBilling}
+            />
+          )}
           {detail.couponsAvailable && (
             <CouponBox applied={coupon} disabled={count === 0} onApply={applyCoupon} onRemove={() => setCoupon(null)} />
           )}

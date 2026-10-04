@@ -8,6 +8,7 @@ import { currentPriceCents } from "../catalog/pricing";
 import { seatLabel } from "../catalog/seat-label";
 import { AdminDb } from "../database/admin-db.service";
 import { EMAIL_PROVIDER, type EmailAttachment, type EmailProvider } from "./email-provider";
+import { InvoiceJobsService } from "./invoice-jobs.service";
 import { RefundProcessorService } from "./refund-processor.service";
 import { TicketPdfService } from "./ticket-pdf.service";
 
@@ -42,6 +43,7 @@ export class OutboxWorkerService {
     private readonly admin: AdminDb,
     private readonly pdf: TicketPdfService,
     private readonly refunds: RefundProcessorService,
+    private readonly invoices: InvoiceJobsService,
     @Inject(EMAIL_PROVIDER) private readonly email: EmailProvider,
   ) {}
 
@@ -63,6 +65,10 @@ export class OutboxWorkerService {
             await this.handleTicketIssued(row.tenantId, row.payload as TicketIssuedPayload);
           } else if (row.type === "refund.process") {
             await this.refunds.process((row.payload as { refundId: string }).refundId);
+          } else if (row.type === "invoice.issue") {
+            await this.invoices.issue(row.tenantId, (row.payload as { orderId: string }).orderId);
+          } else if (row.type === "invoice.rectify") {
+            await this.invoices.rectify(row.tenantId, (row.payload as { refundId: string }).refundId);
           } else if (row.type === "order.refund_required") {
             await this.refunds.refundRequired(row.tenantId, (row.payload as { orderId: string }).orderId);
           } else {

@@ -171,7 +171,14 @@ export class TicketTypesService {
       minPerOrder: input.int(b.minPerOrder, "Mínimo por pedido", 1, 100, false) ?? undefined,
       maxPerOrder: input.int(b.maxPerOrder, "Máximo por pedido", 1, 100),
       sortOrder: input.int(b.sortOrder, "Orden", 0, 10_000, false) ?? undefined,
+      // Impuesto incluido en el precio, en centésimas de punto (1000 = 10 %).
+      taxRateBp: input.int(b.taxRateBp, "Tipo de IVA", 0, 3_000, false) ?? undefined,
+      taxExemptReason: input.text(b.taxExemptReason, "Motivo de la exención", 300),
     });
+    if (fields.taxRateBp === 0 && !fields.taxExemptReason) {
+      throw new BadRequestException("Entrada exenta: indica el motivo (p. ej. «Exenta, art. 20.Uno.14º Ley 37/1992»)");
+    }
+    if (fields.taxRateBp && fields.taxRateBp > 0) fields.taxExemptReason = null;
     if (creating) {
       input.assertOrder(fields.salesStartAt, fields.salesEndAt, "El fin de venta debe ser posterior a su inicio");
       if (fields.maxPerOrder != null && fields.maxPerOrder < (fields.minPerOrder ?? 1)) {

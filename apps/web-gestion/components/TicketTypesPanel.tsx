@@ -110,6 +110,8 @@ export default function TicketTypesPanel({
               </div>
               {t.description && <span className="muted" style={{ fontSize: 13 }}>{t.description}</span>}
               <span className="faint">
+                {t.currentCents !== 0 &&
+                  (t.taxRateBp === 0 ? "Exenta · " : `IVA ${(t.taxRateBp / 100).toLocaleString("es-ES")} % incl. · `)}
                 {t.sold} vendidas de {t.capacity} {general ? "(aforo)" : "asientos"}
                 {" · "}
                 {t.minPerOrder > 1 && `mín. ${t.minPerOrder} · `}
@@ -134,6 +136,16 @@ export default function TicketTypesPanel({
     </div>
   );
 }
+
+/** Tipos habituales (IVA; en Canarias el promotor elige IGIC en sus datos fiscales). */
+const TAX_OPTIONS = [
+  { bp: 1000, label: "10 % — espectáculos en vivo, deporte (reducido)" },
+  { bp: 2100, label: "21 % — general (parking, merchandising, consumiciones…)" },
+  { bp: 400, label: "4 % — superreducido" },
+  { bp: 700, label: "7 % — IGIC general (Canarias)" },
+  { bp: 300, label: "3 % — IGIC reducido (Canarias)" },
+  { bp: 0, label: "Exenta" },
+];
 
 function TicketTypeForm({
   general,
@@ -163,6 +175,8 @@ function TicketTypeForm({
   const [minPer, setMinPer] = useState(String(initial?.minPerOrder ?? 1));
   const [maxPer, setMaxPer] = useState(initial?.maxPerOrder == null ? "" : String(initial.maxPerOrder));
   const [order, setOrder] = useState(String(initial?.sortOrder ?? nextOrder ?? 0));
+  const [taxRate, setTaxRate] = useState(String(initial?.taxRateBp ?? 1000));
+  const [exemptReason, setExemptReason] = useState(initial?.taxExemptReason ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -180,6 +194,7 @@ function TicketTypeForm({
       earlyBird = { priceCents: p, until };
     }
     if (general && (capacity === "" || Number(capacity) < 0)) return setError("Indica el aforo");
+    if (taxRate === "0" && !exemptReason.trim()) return setError("Entrada exenta: indica el motivo de la exención");
 
     setBusy(true);
     try {
@@ -194,6 +209,8 @@ function TicketTypeForm({
         minPerOrder: Number(minPer) || 1,
         maxPerOrder: maxPer === "" ? null : Number(maxPer),
         sortOrder: Number(order) || 0,
+        taxRateBp: Number(taxRate),
+        taxExemptReason: taxRate === "0" ? exemptReason.trim() : null,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error");
@@ -257,6 +274,39 @@ function TicketTypeForm({
           placeholder="Qué incluye: acceso a zona VIP, consumición…"
         />
       </label>
+
+      {!free && (
+        <div className="grid2">
+          <label className="field">
+            Impuesto incluido en el precio
+            <select className="select" value={taxRate} onChange={(e) => setTaxRate(e.target.value)}>
+              {TAX_OPTIONS.map((o) => (
+                <option key={o.bp} value={o.bp}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+            <span className="hint">
+              Conciertos, teatro y demás espectáculos culturales en vivo, y competiciones deportivas: 10 %. Consúltalo
+              con tu gestoría si dudas.
+            </span>
+          </label>
+          {taxRate === "0" && (
+            <label className="field">
+              Motivo de la exención
+              <input
+                className="input"
+                value={exemptReason}
+                onChange={(e) => setExemptReason(e.target.value)}
+                maxLength={300}
+                placeholder="Exenta, art. 20.Uno.14º Ley 37/1992"
+                required
+              />
+              <span className="hint">Sale impreso en la factura.</span>
+            </label>
+          )}
+        </div>
+      )}
 
       {!free && (
         <div className="stack" style={{ gap: 8 }}>

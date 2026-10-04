@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import { bigint, foreignKey, index, integer, jsonb, pgTable, text, timestamp, unique, uniqueIndex, uuid } from "drizzle-orm/pg-core";
-import { type AttendeeAnswer, holdStatus, refundStatus, orderStatus, paymentProvider, paymentStatus, pk, tenantId, ticketStatus, timestamps } from "./_shared";
+import { type AttendeeAnswer, type BillingData, holdStatus, refundStatus, orderStatus, paymentProvider, paymentStatus, pk, tenantId, ticketStatus, timestamps } from "./_shared";
 import { coupon, event, seat } from "./catalog";
 import { tenant } from "./tenancy";
 
@@ -19,6 +19,8 @@ export const order = pgTable(
     buyerEmail: text("buyer_email"),
     buyerName: text("buyer_name"),
     couponId: uuid("coupon_id"),
+    // Datos para factura COMPLETA (empresa/autónomo, u obligatoria si pasa de 400 €).
+    billing: jsonb("billing").$type<BillingData>(),
     discountCents: bigint("discount_cents", { mode: "bigint" }).notNull().default(sql`0`),
     ...timestamps,
   },

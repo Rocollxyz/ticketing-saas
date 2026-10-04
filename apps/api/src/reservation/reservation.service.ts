@@ -283,11 +283,10 @@ export class ReservationService {
     if (h.status === "EXPIRED" || h.status === "RELEASED") {
       try {
         const tickets = await tx.transaction((sp) => this.confirmAndIssueForHoldTx(sp, h, orderId));
-        await tx.insert(schema.outbox).values({
-          tenantId,
-          type: "ticket.issued",
-          payload: { orderId, ticketIds: tickets.map((t) => t.ticketId) },
-        });
+        await tx.insert(schema.outbox).values([
+          { tenantId, type: "ticket.issued", payload: { orderId, ticketIds: tickets.map((t) => t.ticketId) } },
+          { tenantId, type: "invoice.issue", payload: { orderId } },
+        ]);
         return { eventId: h.eventId, tickets };
       } catch (e) {
         if (!isUniqueViolation(e)) throw e;
@@ -304,13 +303,11 @@ export class ReservationService {
 
     const tickets = await this.confirmAndIssueForHoldTx(tx, h, orderId);
 
-    await tx
-      .insert(schema.outbox)
-      .values({
-        tenantId,
-        type: "ticket.issued",
-        payload: { orderId, ticketIds: tickets.map((t) => t.ticketId) },
-      });
+    // Efectos externos: email con las entradas y factura (si hubo cobro).
+    await tx.insert(schema.outbox).values([
+      { tenantId, type: "ticket.issued", payload: { orderId, ticketIds: tickets.map((t) => t.ticketId) } },
+      { tenantId, type: "invoice.issue", payload: { orderId } },
+    ]);
 
     return { eventId: h.eventId, tickets };
   }

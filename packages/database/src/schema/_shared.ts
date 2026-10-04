@@ -71,6 +71,20 @@ export interface AttendeeAnswer {
 // Cupones: PERCENT = % sobre el precio de cada entrada; AMOUNT = céntimos menos por entrada.
 export const couponKind = pgEnum("coupon_kind", ["PERCENT", "AMOUNT"]);
 
+/** Destinatario de una factura completa. */
+export interface BillingData {
+  name: string;
+  taxId: string;
+  address: string;
+  postalCode: string;
+  city: string;
+  country?: string;
+}
+
+// Facturas. SIMPLIFIED (ticket, hasta 400 €), FULL (con datos del destinatario),
+// RECTIFYING (devoluciones; serie propia).
+export const invoiceKind = pgEnum("invoice_kind", ["SIMPLIFIED", "FULL", "RECTIFYING"]);
+
 export const holdStatus = pgEnum("hold_status", [
   "ACTIVE",
   "CONFIRMED",

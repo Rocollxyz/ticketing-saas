@@ -1,6 +1,7 @@
-import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { schema } from "@ticketing/database";
 import { eq } from "drizzle-orm";
+import { isValidSpanishTaxId, normalizeTaxId } from "../billing/tax";
 import * as input from "../common/input";
 import { getStore } from "../database/tenant-context";
 import { TenantDb } from "../database/tenant-db.service";
@@ -43,6 +44,14 @@ export class ProfileService {
       tiktok: input.social(body.tiktok, "tiktok", "TikTok"),
       x: input.social(body.x, "x", "X"),
       youtube: input.social(body.youtube, "youtube", "YouTube"),
+      // Datos fiscales (emisor de las facturas de las entradas).
+      fiscalName: input.text(body.fiscalName, "Razón social", 200),
+      taxId: taxIdOf(body.taxId),
+      fiscalAddress: input.text(body.fiscalAddress, "Dirección fiscal", 300),
+      fiscalPostalCode: input.text(body.fiscalPostalCode, "Código postal", 10),
+      fiscalCity: input.text(body.fiscalCity, "Población", 100),
+      fiscalProvince: input.text(body.fiscalProvince, "Provincia", 100),
+      taxRegime: input.oneOf(body.taxRegime, "Impuesto", ["IVA", "IGIC"] as const),
     });
     return this.db.run(async (tx) => {
       const [t] = await tx
@@ -54,4 +63,13 @@ export class ProfileService {
       return t;
     });
   }
+}
+
+/** NIF del promotor: DNI, NIE o CIF válidos. */
+function taxIdOf(v: unknown) {
+  const raw = input.text(v, "NIF", 20);
+  if (raw == null) return raw;
+  const n = normalizeTaxId(raw);
+  if (!isValidSpanishTaxId(n)) throw new BadRequestException("NIF no válido (DNI, NIE o CIF)");
+  return n;
 }

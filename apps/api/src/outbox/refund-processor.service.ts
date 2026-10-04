@@ -63,6 +63,8 @@ export class RefundProcessorService {
       if (total >= Number(pay.amountCents)) {
         await tx.update(schema.payment).set({ status: "REFUNDED" }).where(eq(schema.payment.id, pay.id));
       }
+      // Factura rectificativa de lo devuelto (si el pedido se facturó).
+      await tx.insert(schema.outbox).values({ tenantId: r.tenantId, type: "invoice.rectify", payload: { refundId: r.id } });
     });
     await this.notify(r.orderId, r.amountCents, r.ticketIds.length, r.reason);
   }

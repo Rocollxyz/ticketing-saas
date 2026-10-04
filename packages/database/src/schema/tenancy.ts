@@ -26,6 +26,15 @@ export const tenant = pgTable("tenant", {
   tiktok: text("tiktok"),
   x: text("x"),
   youtube: text("youtube"),
+  // Datos FISCALES (emisor de las facturas de las entradas: vende el promotor).
+  fiscalName: text("fiscal_name"), // razón social o nombre y apellidos
+  taxId: text("tax_id"), // NIF
+  fiscalAddress: text("fiscal_address"),
+  fiscalPostalCode: text("fiscal_postal_code"),
+  fiscalCity: text("fiscal_city"),
+  fiscalProvince: text("fiscal_province"),
+  // IVA (península y Baleares) o IGIC (Canarias). Cambia el nombre del impuesto.
+  taxRegime: text("tax_regime").notNull().default("IVA"),
   ...timestamps,
 });
 

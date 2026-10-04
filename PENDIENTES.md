@@ -37,8 +37,8 @@ npm run dev                   # API :3000 + webs :3001 compra, :3002 gestión, :
 | 3 | **Emails reales** | Más adelante: **servicio propio en el servidor** (decidido 2026-10-04; nada de Resend/Brevo/SES). Se hará con el paso a producción |
 | 4 | Cupones / códigos de descuento (pestaña «Descuentos»; % o € por entrada, por evento/categorías o para todos los eventos, usos máximos y fechas) | ✅ Hecho |
 | 5 | Reembolsos y cancelaciones: anular con devolución (online automática por Stripe; taquilla «por devolver en mano»), devolución en bloque al cancelar un evento, cobros sin plaza devueltos solos, email al comprador. Guarda lo pagado por cada entrada | ✅ Hecho |
-| 6 | **Redsys + Bizum** (pasarela española) — pedir ya al banco el TPV virtual | Pendiente |
-| 7 | ⏭️ **Siguiente** — **IVA y facturas** (consultar a la gestoría: tipo de factura y Verifactu) | Pendiente |
+| 6 | ⏭️ **Siguiente** — **Redsys + Bizum** (pasarela española) — pedir ya al banco el TPV virtual | Pendiente |
+| 7 | IVA y facturas (pestaña «Facturación»): emite el promotor; IVA por tipo de entrada (10 % por defecto); simplificada ≤ 400 €, completa (obligatoria > 400 €), canje y rectificativas; numeración sin huecos, registro encadenado VERI*FACTU y libro registro en CSV. Ver [FACTURACION.md](FACTURACION.md) — **revisar con la gestoría** | ✅ Hecho |
 
 Después de producción (por importancia): emails en HTML y plantillas de entrada
 personalizables · «Añadir al calendario» (.ics) y recordatorios · Apple/Google Wallet ·
@@ -60,6 +60,15 @@ directorio de promotores en la portada `/` (hoy es una demo fija).
   el propio datáfono cuando haya uno real.
 - No hay «devolver el pedido entero» desde una entrada: se anula entrada a entrada (o todo
   el evento si se cancela).
+- **VERI*FACTU incompleto**: falta enviar los registros a la AEAT, el QR y la leyenda en la
+  factura y la declaración responsable. Obligatorio desde 1-1-2027 (sociedades) / 1-7-2027
+  (autónomos). Detalle en FACTURACION.md.
+- La **taquilla** no pide datos para factura completa (> 400 € se canjea después).
+- El **comprador** no puede pedir factura completa tras comprar (lo hace el promotor).
+- La lista de tipos de entrada pone «IVA» aunque el promotor esté en IGIC (la factura sí
+  dice IGIC).
+- **Comisiones de la plataforma**: cuando se cobren, facturarlas al promotor (21 %).
+- TicketBAI (País Vasco) y SII no están contemplados.
 - Invitaciones en numerado: se asignan los primeros asientos libres; no se pueden elegir.
 - **Taquilla** no pide los datos de asistentes al vender en mostrador.
 - Plano de la tienda: un asiento vendido antes de abrir la página sale «ocupado» en vez de
@@ -107,7 +116,7 @@ directorio de promotores en la portada `/` (hoy es una demo fija).
 ## Coordinación entre líneas
 - `main` nunca recibe trabajo a medias de Darrian/Raquel; se integrarán cuando estén
   maduras (decisión aparte).
-- La BD es compartida y ya tiene la migración **0013** (reembolsos; 0012 cupones, 0011
-  datos de asistentes). Para que
+- La BD es compartida y ya tiene la migración **0014** (facturación; 0013 reembolsos, 0012
+  cupones, 0011 datos de asistentes). Para que
   Darrian/Raquel tengan el código al día: en su ventana, «trae los cambios de main»
   (`git merge main`).

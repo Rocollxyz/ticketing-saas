@@ -1,6 +1,8 @@
 import { Module } from "@nestjs/common";
+import { BillingModule } from "../billing/billing.module";
 import { EMAIL_PROVIDER } from "./email-provider";
 import { FileEmailProvider } from "./file-email.provider";
+import { InvoiceJobsService } from "./invoice-jobs.service";
 import { OutboxWorkerService } from "./outbox-worker.service";
 import { RefundProcessorService } from "./refund-processor.service";
 import { TicketPdfService } from "./ticket-pdf.service";
@@ -11,8 +13,10 @@ import { TicketPdfService } from "./ticket-pdf.service";
  * DatabaseModule global.
  */
 @Module({
+  imports: [BillingModule],
   providers: [
     OutboxWorkerService,
+    InvoiceJobsService,
     RefundProcessorService,
     TicketPdfService,
     { provide: EMAIL_PROVIDER, useClass: FileEmailProvider },

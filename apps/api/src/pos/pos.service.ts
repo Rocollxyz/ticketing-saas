@@ -169,11 +169,10 @@ export class PosService {
         status: "CAPTURED",
       });
       const tickets = await this.reservation.issueHoldForPosTx(tx, holdId, o.id);
-      await tx.insert(schema.outbox).values({
-        tenantId,
-        type: "ticket.issued",
-        payload: { orderId: o.id, ticketIds: tickets.map((t) => t.ticketId) },
-      });
+      await tx.insert(schema.outbox).values([
+        { tenantId, type: "ticket.issued", payload: { orderId: o.id, ticketIds: tickets.map((t) => t.ticketId) } },
+        { tenantId, type: "invoice.issue", payload: { orderId: o.id } },
+      ]);
 
       const labels = await tx
         .select({

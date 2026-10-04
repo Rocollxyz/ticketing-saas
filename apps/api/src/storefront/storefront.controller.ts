@@ -62,12 +62,20 @@ export class StorefrontController {
   checkout(
     @Param("slug") slug: string,
     @Body()
-    body: { holdId: string; buyerEmail?: string; buyerName?: unknown; attendees?: unknown; couponCode?: unknown },
+    body: {
+      holdId: string;
+      buyerEmail?: string;
+      buyerName?: unknown;
+      attendees?: unknown;
+      couponCode?: unknown;
+      billing?: unknown;
+    },
   ) {
     return this.shop.createCheckout(slug, body.holdId, body.buyerEmail, {
       name: body.buyerName,
       attendees: body.attendees,
       couponCode: body.couponCode,
+      billing: body.billing,
     });
   }
 

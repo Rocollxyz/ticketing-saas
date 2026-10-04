@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
-import { schema } from "@ticketing/database";
+import { type BillingData, schema } from "@ticketing/database";
 import { and, eq, inArray } from "drizzle-orm";
 
 type Tx = Parameters<Parameters<TenantDb["run"]>[0]>[0];
@@ -17,6 +17,7 @@ import { TenantDb } from "../database/tenant-db.service";
 import { PAYMENT_PROVIDER, PaymentProvider } from "../payments/payment-provider";
 import { SEATS_SOLD, type SeatsSoldEvent } from "../realtime/seat-events";
 import { validateAttendees } from "../catalog/attendee";
+import { SIMPLIFIED_LIMIT_CENTS } from "../billing/tax";
 import { type PricedLine, resolveCouponTx } from "../catalog/coupon";
 import { currentPriceCents } from "../catalog/pricing";
 import { eventSalesState, SALES_REASON_TEXT } from "../catalog/sales-rules";
@@ -47,7 +48,7 @@ export class CheckoutService {
   async createCheckout(
     holdId: string,
     buyerEmail?: string,
-    buyer: { name?: string | null; attendees?: unknown; couponCode?: string | null } = {},
+    buyer: { name?: string | null; attendees?: unknown; couponCode?: string | null; billing?: BillingData | null } = {},
   ) {
     const tenantId = getStore()!.tenantId;
 
@@ -109,6 +110,14 @@ export class CheckoutService {
       };
     });
 
+    // Más de 400 €: la factura simplificada no vale (RD 1619/2012, art. 4) → hacen falta
+    // los datos del comprador para la completa.
+    if (amountCents > BigInt(SIMPLIFIED_LIMIT_CENTS) && !buyer.billing) {
+      throw new BadRequestException(
+        "Para compras de más de 400 € la ley exige factura completa: indica tus datos de facturación (NIF y dirección)",
+      );
+    }
+
     // Pedido GRATUITO (entradas a 0 €, o 100 % de descuento): nada que cobrar → se emite ya.
     const buyerName = buyer.name?.trim() || null;
     if (amountCents === 0n) return this.fulfillFreeOrder(holdId, buyerEmail, buyerName, coupon);
@@ -136,6 +145,7 @@ export class CheckoutService {
         buyerName,
         couponId,
         discountCents,
+        billing: buyer.billing ?? null,
       });
       await tx.update(schema.hold).set({ orderId }).where(eq(schema.hold.id, h.id));
       await tx.insert(schema.payment).values({
