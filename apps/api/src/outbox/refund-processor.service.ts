@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger } from "@nestjs/common";
 import { schema } from "@ticketing/database";
 import { and, eq, ne, sql } from "drizzle-orm";
 import { AdminDb } from "../database/admin-db.service";
-import { PAYMENT_PROVIDER, type PaymentProvider } from "../payments/payment-provider";
+import { PaymentRegistry } from "../payments/payment-registry";
 import { EMAIL_PROVIDER, type EmailProvider } from "./email-provider";
 
 const euros = (c: number) => (c / 100).toLocaleString("es-ES", { style: "currency", currency: "EUR" });
@@ -22,7 +22,7 @@ export class RefundProcessorService {
 
   constructor(
     private readonly admin: AdminDb,
-    @Inject(PAYMENT_PROVIDER) private readonly provider: PaymentProvider,
+    private readonly payments: PaymentRegistry,
     @Inject(EMAIL_PROVIDER) private readonly email: EmailProvider,
   ) {}
 
@@ -35,13 +35,12 @@ export class RefundProcessorService {
     const fail = (error: string) =>
       db.update(schema.refund).set({ status: "FAILED", error, updatedAt: new Date() }).where(eq(schema.refund.id, r.id));
     if (!pay?.providerRef) return fail("El pedido no tiene un cobro online");
-    if (pay.provider !== this.provider.name) {
-      return fail(`Cobrado con ${pay.provider}; la pasarela activa es ${this.provider.name}`);
-    }
+    const provider = this.payments.get(pay.provider);
+    if (!provider) return fail(`La pasarela ${pay.provider} no está configurada`);
 
     let result;
     try {
-      result = await this.provider.refund(pay.providerRef, r.amountCents, r.id);
+      result = await provider.refund(pay.providerRef, r.amountCents, r.id);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       this.logger.error(`devolución ${r.id} falló: ${msg}`);

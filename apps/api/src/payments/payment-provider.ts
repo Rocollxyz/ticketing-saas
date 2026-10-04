@@ -3,18 +3,26 @@
  * proveedor concreto. Implementaciones: FakeProvider (dev/test), StripeProvider
  * (Fase 2), RedsysProvider y TpvProvider (después).
  */
-export const PAYMENT_PROVIDER = Symbol("PAYMENT_PROVIDER");
+
+/** Cómo paga el comprador. Bizum solo lo ofrece Redsys. */
+export type PaymentMethod = "card" | "bizum";
 
 export interface CreateIntentArgs {
   orderId: string;
   amountCents: bigint;
   currency: string;
+  method?: PaymentMethod;
+  /** Pasarelas por redirección: adónde vuelve el comprador al pagar o al cancelar. */
+  returnUrls?: { ok: string; ko: string };
+  description?: string;
 }
 
 export interface CreateIntentResult {
   providerRef: string;
   /** Secreto para que el frontend complete el pago (en Stripe, client_secret). */
   clientSecret?: string;
+  /** Pasarelas por redirección (Redsys): formulario que el navegador envía a `url`. */
+  redirect?: { url: string; fields: Record<string, string> };
 }
 
 /** Evento de pago normalizado, ya verificado (firma comprobada). */
@@ -23,6 +31,8 @@ export interface PaymentWebhookEvent {
   id: string;
   type: "payment_succeeded" | "payment_failed" | "other";
   providerRef: string;
+  /** Importe cobrado según la pasarela, para comprobar que cuadra con el pedido. */
+  amountCents?: number;
 }
 
 /**

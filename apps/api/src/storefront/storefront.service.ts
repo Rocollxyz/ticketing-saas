@@ -11,6 +11,7 @@ import { parseBilling } from "../billing/billing.service";
 import { CheckoutService } from "../checkout/checkout.service";
 import { hasActiveCouponTx } from "../catalog/coupon";
 import { listTx as listFieldsTx } from "../events/attendee-fields.service";
+import { PaymentRegistry } from "../payments/payment-registry";
 import { HoldReleaseService } from "../reservation/hold-release.service";
 import { ReservationService } from "../reservation/reservation.service";
 
@@ -51,6 +52,7 @@ export class StorefrontService {
     private readonly reservation: ReservationService,
     private readonly checkout: CheckoutService,
     private readonly releaser: HoldReleaseService,
+    private readonly payments: PaymentRegistry,
   ) {}
 
   /** Resuelve el tenant por slug y ejecuta `fn` con el contexto de tenant fijado. */
@@ -289,6 +291,8 @@ export class StorefrontService {
             options: f.options,
             ticketTypeIds: f.ticketTypeIds,
           })),
+          // Cómo se puede pagar (tarjeta, Bizum), según las pasarelas activas.
+          paymentMethods: this.payments.methods(),
           // Solo para mostrar (o no) la casilla «código de descuento»; nunca los códigos.
           couponsAvailable: await hasActiveCouponTx(tx, eventId),
           sales: st.open
@@ -401,8 +405,9 @@ export class StorefrontService {
     slug: string,
     holdId: string,
     buyerEmail?: string,
-    buyer: { name?: unknown; attendees?: unknown; couponCode?: unknown; billing?: unknown } = {},
+    buyer: { name?: unknown; attendees?: unknown; couponCode?: unknown; billing?: unknown; method?: unknown } = {},
   ) {
+    const method = buyer.method === "bizum" ? "bizum" : "card";
     if (!UUID_RE.test(holdId ?? "")) throw new BadRequestException("Reserva inválida");
     const email = buyerEmail?.trim().toLowerCase();
     if (!email || email.length > 254 || !EMAIL_RE.test(email)) {
@@ -417,8 +422,31 @@ export class StorefrontService {
         attendees: buyer.attendees,
         couponCode: couponCodeOf(buyer.couponCode),
         billing: buyer.billing == null ? null : parseBilling(buyer.billing),
+        method,
+        // Vuelta desde la pasarela (Redsys). La página de éxito verifica el pago firmado.
+        returnUrls: (orderId) => ({
+          ok: `${SHOP_URL}/${slug}/success?order=${orderId}&pay=redsys`,
+          ko: `${SHOP_URL}/${slug}/success?order=${orderId}&pay=redsys&ko=1`,
+        }),
       }),
     );
+  }
+
+  /**
+   * Vuelta del comprador desde Redsys: trae el resultado FIRMADO (los mismos campos que la
+   * notificación). Se verifica y se procesa igual que el webhook (idempotente), así el
+   * pago se confirma aunque la notificación no llegue (p. ej. servidor local).
+   */
+  async confirmReturn(slug: string, orderId: string, params: Record<string, unknown>) {
+    if (!UUID_RE.test(orderId)) throw new BadRequestException("Pedido inválido");
+    const form = new URLSearchParams();
+    for (const k of ["Ds_SignatureVersion", "Ds_MerchantParameters", "Ds_Signature"]) {
+      if (typeof params[k] === "string") form.set(k, params[k] as string);
+    }
+    if (form.has("Ds_MerchantParameters")) {
+      await this.checkout.handleWebhook("redsys", form.toString(), {}).catch(() => null);
+    }
+    return this.withTenant(slug, () => this.checkout.orderStatus(orderId));
   }
 
   /** Total de una selección con un código de descuento (sin reservar ni gastar el uso). */
@@ -439,6 +467,9 @@ export class StorefrontService {
     return this.withTenant(slug, () => this.checkout.quote(eventId, { seatIds, quantities }, c));
   }
 }
+
+/** URL pública de la tienda (vuelta desde las pasarelas por redirección). */
+const SHOP_URL = process.env.SHOP_PUBLIC_URL ?? "http://localhost:3001";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

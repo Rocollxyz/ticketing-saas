@@ -13,6 +13,7 @@ import {
   fieldsFor,
   formatDate,
   type HeldSeat,
+  type PaymentMethod,
   type ShopTicketType,
 } from "../../../../lib/api";
 import AttendeesForm from "./AttendeesForm";
@@ -65,6 +66,8 @@ export default function EventClient({ slug, detail: initial }: { slug: string; d
   const [email, setEmail] = useState("");
   const [coupon, setCoupon] = useState<AppliedCoupon | null>(null);
   const [wantsInvoice, setWantsInvoice] = useState(false);
+  const methods = detail.paymentMethods ?? ["card"];
+  const [method, setMethod] = useState<PaymentMethod>("card");
   const [billing, setBilling] = useState<BillingInput>(EMPTY_BILLING);
   const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 
@@ -273,6 +276,7 @@ export default function EventClient({ slug, detail: initial }: { slug: string; d
         attendees,
         couponCode: coupon?.code,
         billing: sendBilling ? billing : undefined,
+        method,
       }),
     });
     if (!coRes.ok) {
@@ -280,6 +284,12 @@ export default function EventClient({ slug, detail: initial }: { slug: string; d
       throw new Error(body?.message ?? "No se pudo iniciar el pago");
     }
     const co = await coRes.json();
+    // Pasarela por redirección (Redsys: tarjeta o Bizum): el navegador va a pagar allí y
+    // vuelve a la página de éxito, que confirma el pago firmado.
+    if (co.redirect) {
+      submitRedirect(co.redirect.url, co.redirect.fields);
+      return;
+    }
     // Pedido gratuito: ya está emitido, no hay pago.
     if (co.free) {
       router.push(`/${slug}/success?event=${ev.id}`);
@@ -513,6 +523,29 @@ export default function EventClient({ slug, detail: initial }: { slug: string; d
             <CouponBox applied={coupon} disabled={count === 0} onApply={applyCoupon} onRemove={() => setCoupon(null)} />
           )}
           {ruleError && <p style={{ color: "#e0a23c", fontSize: 14 }}>{ruleError}</p>}
+          {payable > 0 && methods.length > 1 && (
+            <div style={{ display: "flex", gap: 8, marginBottom: 12, fontSize: 14 }} role="radiogroup" aria-label="Forma de pago">
+              {methods.map((m) => (
+                <label
+                  key={m}
+                  style={{
+                    flex: 1,
+                    display: "flex",
+                    gap: 8,
+                    alignItems: "center",
+                    padding: "10px 12px",
+                    borderRadius: 8,
+                    cursor: "pointer",
+                    border: `1px solid ${method === m ? "#5b9dff" : "#2b313c"}`,
+                    background: method === m ? "#1d2b45" : "#171a21",
+                  }}
+                >
+                  <input type="radio" name="pay-method" checked={method === m} onChange={() => setMethod(m)} />
+                  {m === "card" ? "💳 Tarjeta" : "📱 Bizum"}
+                </label>
+              ))}
+            </div>
+          )}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <strong>
               Total:{" "}
@@ -853,6 +886,22 @@ function SeatMap({
       )}
     </div>
   );
+}
+
+/** Envía el navegador a la pasarela con un formulario POST (así lo exige Redsys). */
+function submitRedirect(url: string, fields: Record<string, string>) {
+  const form = document.createElement("form");
+  form.method = "POST";
+  form.action = url;
+  for (const [name, value] of Object.entries(fields)) {
+    const input = document.createElement("input");
+    input.type = "hidden";
+    input.name = name;
+    input.value = value;
+    form.appendChild(input);
+  }
+  document.body.appendChild(form);
+  form.submit();
 }
 
 function PaymentForm({

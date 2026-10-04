@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { type BillingData, schema } from "@ticketing/database";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 
 type Tx = Parameters<Parameters<TenantDb["run"]>[0]>[0];
 
@@ -14,7 +14,8 @@ interface AppliedCoupon {
 import { AdminDb } from "../database/admin-db.service";
 import { getStore } from "../database/tenant-context";
 import { TenantDb } from "../database/tenant-db.service";
-import { PAYMENT_PROVIDER, PaymentProvider } from "../payments/payment-provider";
+import type { PaymentMethod } from "../payments/payment-provider";
+import { PaymentRegistry } from "../payments/payment-registry";
 import { SEATS_SOLD, type SeatsSoldEvent } from "../realtime/seat-events";
 import { validateAttendees } from "../catalog/attendee";
 import { SIMPLIFIED_LIMIT_CENTS } from "../billing/tax";
@@ -28,12 +29,14 @@ const CURRENCY = process.env.CURRENCY ?? "EUR";
 
 @Injectable()
 export class CheckoutService {
+  private readonly logger = new Logger(CheckoutService.name);
+
   constructor(
     private readonly db: TenantDb,
     private readonly admin: AdminDb,
     private readonly reservation: ReservationService,
     private readonly emitter: EventEmitter2,
-    @Inject(PAYMENT_PROVIDER) private readonly provider: PaymentProvider,
+    private readonly payments: PaymentRegistry,
   ) {}
 
   /**
@@ -48,8 +51,19 @@ export class CheckoutService {
   async createCheckout(
     holdId: string,
     buyerEmail?: string,
-    buyer: { name?: string | null; attendees?: unknown; couponCode?: string | null; billing?: BillingData | null } = {},
+    buyer: {
+      name?: string | null;
+      attendees?: unknown;
+      couponCode?: string | null;
+      billing?: BillingData | null;
+      method?: PaymentMethod;
+      /** Pasarelas por redirección: adónde vuelve el comprador (los arma la tienda). */
+      returnUrls?: (orderId: string) => { ok: string; ko: string };
+    } = {},
   ) {
+    const method = buyer.method ?? "card";
+    const provider = this.payments.forMethod(method);
+    if (!provider) throw new BadRequestException("Método de pago no disponible");
     const tenantId = getStore()!.tenantId;
 
     // 1) Validar hold y calcular importe desde los precios reales (lectura).
@@ -125,7 +139,14 @@ export class CheckoutService {
     const orderId = randomUUID();
 
     // 2) Crear el intent en el proveedor (red, fuera de transacción).
-    const intent = await this.provider.createIntent({ orderId, amountCents, currency: CURRENCY });
+    const intent = await provider.createIntent({
+      orderId,
+      amountCents,
+      currency: CURRENCY,
+      method,
+      returnUrls: buyer.returnUrls?.(orderId),
+      description: "Entradas",
+    });
 
     // 3) Persistir order + payment + enlazar el hold.
     await this.db.run(async (tx) => {
@@ -151,7 +172,7 @@ export class CheckoutService {
       await tx.insert(schema.payment).values({
         tenantId,
         orderId,
-        provider: this.provider.name as "stripe" | "redsys" | "tpv",
+        provider: provider.name as "stripe" | "redsys" | "tpv",
         providerRef: intent.providerRef,
         amountCents,
         currency: CURRENCY,
@@ -164,8 +185,9 @@ export class CheckoutService {
       amountCents: amountCents.toString(),
       discountCents: discountCents.toString(),
       currency: CURRENCY,
-      clientSecret: intent.clientSecret,
-      publishableKey: process.env.STRIPE_PUBLISHABLE_KEY,
+      ...(intent.redirect
+        ? { redirect: intent.redirect }
+        : { clientSecret: intent.clientSecret, publishableKey: process.env.STRIPE_PUBLISHABLE_KEY }),
     };
   }
 
@@ -202,6 +224,22 @@ export class CheckoutService {
       const { coupon, discountCents } = await resolveCouponTx(tx, code, eventId, lines);
       const subtotal = lines.reduce((a, l) => a + l.amountCents, 0);
       return { code: coupon.code, subtotalCents: subtotal, discountCents, totalCents: subtotal - discountCents };
+    });
+  }
+
+  /** Estado de un pedido para la página de vuelta (sin datos personales). */
+  orderStatus(orderId: string) {
+    return this.db.run(async (tx) => {
+      const [o] = await tx
+        .select({ status: schema.order.status, eventId: schema.order.eventId })
+        .from(schema.order)
+        .where(eq(schema.order.id, orderId));
+      if (!o) throw new NotFoundException("Pedido no encontrado");
+      const [{ n }] = await tx
+        .select({ n: sql<number>`count(*)`.mapWith(Number) })
+        .from(schema.ticket)
+        .where(eq(schema.ticket.orderId, orderId));
+      return { status: o.status, eventId: o.eventId, tickets: n };
     });
   }
 
@@ -275,10 +313,9 @@ export class CheckoutService {
     rawBody: string,
     headers: Record<string, string | undefined>,
   ) {
-    if (providerName !== this.provider.name) {
-      throw new NotFoundException("Proveedor desconocido");
-    }
-    const evt = this.provider.verifyAndParse(rawBody, headers);
+    const provider = this.payments.get(providerName);
+    if (!provider) throw new NotFoundException("Proveedor desconocido");
+    const evt = provider.verifyAndParse(rawBody, headers);
     if (!evt) throw new BadRequestException("Firma de webhook inválida");
     if (evt.type !== "payment_succeeded") return { ignored: evt.type };
 
@@ -289,6 +326,12 @@ export class CheckoutService {
       .where(eq(schema.payment.providerRef, evt.providerRef))
       .limit(1);
     if (!pay) return { ignored: "pago desconocido" };
+    if (pay.provider !== providerName) return { ignored: "pasarela distinta" };
+    // Defensa: lo cobrado debe ser lo que pedimos (un importe manipulado no emite nada).
+    if (evt.amountCents != null && evt.amountCents !== Number(pay.amountCents)) {
+      this.logger.error(`pago ${pay.id}: cobrado ${evt.amountCents} ≠ pedido ${pay.amountCents} — no se emite`);
+      return { ignored: "importe distinto" };
+    }
 
     const result = await this.db.runAs(pay.tenantId, async (tx) => {
       const inserted = await tx

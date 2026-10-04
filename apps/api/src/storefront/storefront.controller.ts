@@ -69,6 +69,7 @@ export class StorefrontController {
       attendees?: unknown;
       couponCode?: unknown;
       billing?: unknown;
+      method?: unknown;
     },
   ) {
     return this.shop.createCheckout(slug, body.holdId, body.buyerEmail, {
@@ -76,7 +77,17 @@ export class StorefrontController {
       attendees: body.attendees,
       couponCode: body.couponCode,
       billing: body.billing,
+      method: body.method,
     });
+  }
+
+  /**
+   * Vuelta desde la pasarela por redirección (Redsys) con el resultado firmado
+   * ({ Ds_SignatureVersion, Ds_MerchantParameters, Ds_Signature }). Devuelve el estado.
+   */
+  @Post("orders/:orderId/confirm-return")
+  confirmReturn(@Param("slug") slug: string, @Param("orderId") orderId: string, @Body() body: Record<string, unknown>) {
+    return this.shop.confirmReturn(slug, orderId, body ?? {});
   }
 
   /** Comprueba un código de descuento: { eventId, seatIds | quantities, code }. */

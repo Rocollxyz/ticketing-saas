@@ -1,9 +1,9 @@
-import { Inject, Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { schema } from "@ticketing/database";
 import { and, eq } from "drizzle-orm";
 import { AdminDb } from "../database/admin-db.service";
-import { PAYMENT_PROVIDER, type PaymentProvider } from "../payments/payment-provider";
+import { PaymentRegistry } from "../payments/payment-registry";
 import { SEATS_RELEASED, type SeatsReleasedEvent } from "../realtime/seat-events";
 
 /**
@@ -24,7 +24,7 @@ export class HoldReleaseService {
   constructor(
     private readonly admin: AdminDb,
     private readonly emitter: EventEmitter2,
-    @Inject(PAYMENT_PROVIDER) private readonly provider: PaymentProvider,
+    private readonly payments: PaymentRegistry,
   ) {}
 
   /**
@@ -45,12 +45,13 @@ export class HoldReleaseService {
         .from(schema.payment)
         .where(and(eq(schema.payment.orderId, h.orderId), eq(schema.payment.status, "PENDING")));
       if (pay) {
-        if (pay.provider !== this.provider.name) {
-          this.logger.warn(`hold ${holdId}: pago con ${pay.provider}, no se puede cancelar desde ${this.provider.name}`);
+        const provider = this.payments.get(pay.provider);
+        if (!provider) {
+          this.logger.warn(`hold ${holdId}: pago con ${pay.provider}, pasarela no configurada`);
           return false;
         }
         // Red, FUERA de la transacción.
-        const outcome = await this.provider.cancelIntent(pay.ref!);
+        const outcome = await provider.cancelIntent(pay.ref!);
         if (outcome !== "canceled") {
           this.logger.log(`hold ${holdId}: cobro ${outcome} — se mantiene la reserva hasta el webhook`);
           return false;

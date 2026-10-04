@@ -37,7 +37,7 @@ npm run dev                   # API :3000 + webs :3001 compra, :3002 gestión, :
 | 3 | **Emails reales** | Más adelante: **servicio propio en el servidor** (decidido 2026-10-04; nada de Resend/Brevo/SES). Se hará con el paso a producción |
 | 4 | Cupones / códigos de descuento (pestaña «Descuentos»; % o € por entrada, por evento/categorías o para todos los eventos, usos máximos y fechas) | ✅ Hecho |
 | 5 | Reembolsos y cancelaciones: anular con devolución (online automática por Stripe; taquilla «por devolver en mano»), devolución en bloque al cancelar un evento, cobros sin plaza devueltos solos, email al comprador. Guarda lo pagado por cada entrada | ✅ Hecho |
-| 6 | ⏭️ **Siguiente** — **Redsys + Bizum** (pasarela española) — pedir ya al banco el TPV virtual | Pendiente |
+| 6 | Redsys + Bizum: varias pasarelas a la vez (tarjeta → `PAYMENTS_PROVIDER`, Bizum → Redsys), el comprador elige; pago por redirección con firma verificada, notificación + confirmación al volver, devolución por REST. Probado de punta a punta en el entorno de pruebas de Redsys (pago real con 3DS y devolución real). **Falta el contrato de TPV virtual con el banco** para producción | ✅ Hecho |
 | 7 | IVA y facturas (pestaña «Facturación»): emite el promotor; IVA por tipo de entrada (10 % por defecto); simplificada ≤ 400 €, completa (obligatoria > 400 €), canje y rectificativas; numeración sin huecos, registro encadenado VERI*FACTU y libro registro en CSV. Ver [FACTURACION.md](FACTURACION.md) — **revisar con la gestoría** | ✅ Hecho |
 
 Después de producción (por importancia): emails en HTML y plantillas de entrada
@@ -69,6 +69,16 @@ directorio de promotores en la portada `/` (hoy es una demo fija).
   dice IGIC).
 - **Comisiones de la plataforma**: cuando se cobren, facturarlas al promotor (21 %).
 - TicketBAI (País Vasco) y SII no están contemplados.
+- **Redsys en producción**: necesita `PUBLIC_API_URL` público (HTTPS) para la notificación;
+  en local solo funciona la confirmación al volver el comprador (si cierra la pestaña en
+  Redsys antes de volver, el pago no se ve hasta que llegue la notificación).
+- **Devoluciones por Redsys** no tienen clave de idempotencia en su API: si el proceso cae
+  justo después de devolver y antes de anotarlo, el reintento podría devolver dos veces.
+- **Bizum** solo probado hasta la redirección (el entorno de pruebas pide un móvil de
+  pruebas del banco); el pago y la devolución van por el mismo camino que la tarjeta.
+- Con Redsys no se puede cancelar un pago a medio hacer: si el comprador paga después de
+  caducar la reserva, entra por «cobrado sin plaza» (se devuelve solo).
+- La lista de «Asistentes» pone «Online» sin distinguir tarjeta de Bizum.
 - Invitaciones en numerado: se asignan los primeros asientos libres; no se pueden elegir.
 - **Taquilla** no pide los datos de asistentes al vender en mostrador.
 - Plano de la tienda: un asiento vendido antes de abrir la página sale «ocupado» en vez de

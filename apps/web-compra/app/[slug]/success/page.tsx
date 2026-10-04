@@ -1,26 +1,66 @@
 import Link from "next/link";
-import { fetchConfirmation } from "../../../lib/api";
+import { confirmReturn, fetchConfirmation } from "../../../lib/api";
+
+type Search = {
+  event?: string;
+  order?: string;
+  pay?: string;
+  ko?: string;
+  Ds_SignatureVersion?: string;
+  Ds_MerchantParameters?: string;
+  Ds_Signature?: string;
+};
 
 export default async function SuccessPage({
   params,
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ event?: string }>;
+  searchParams: Promise<Search>;
 }) {
   const { slug } = await params;
-  const { event } = await searchParams;
-  const info = event ? await fetchConfirmation(slug, event) : null;
+  const q = await searchParams;
+
+  // Vuelta desde Redsys (tarjeta/Bizum): el resultado viene firmado en la URL.
+  let eventId = q.event;
+  let state: "ok" | "pending" | "failed" = "ok";
+  if (q.pay === "redsys" && q.order) {
+    const signed = Object.fromEntries(
+      (["Ds_SignatureVersion", "Ds_MerchantParameters", "Ds_Signature"] as const)
+        .filter((k) => q[k])
+        .map((k) => [k, q[k]!]),
+    );
+    const st = await confirmReturn(slug, q.order, signed);
+    eventId = st?.eventId ?? eventId;
+    state = st?.status === "PAID" ? "ok" : q.ko || st?.status === "CANCELLED" ? "failed" : "pending";
+  }
+  const info = eventId ? await fetchConfirmation(slug, eventId) : null;
+
+  if (state === "failed") {
+    return (
+      <main style={{ textAlign: "center", paddingTop: 60 }}>
+        <div style={{ fontSize: 56 }}>⚠️</div>
+        <h1>El pago no se ha completado</h1>
+        {info && <p style={{ fontSize: 18, margin: "0 0 8px" }}>{info.name}</p>}
+        <p style={{ opacity: 0.8 }}>No se ha cobrado nada. Tus entradas se liberarán en unos minutos.</p>
+        <Link href={eventId ? `/${slug}/event/${eventId}` : `/${slug}`} style={{ color: "#5b9dff" }}>
+          ← Volver a intentarlo
+        </Link>
+      </main>
+    );
+  }
 
   return (
     <main style={{ textAlign: "center", paddingTop: 60 }}>
       <div style={{ fontSize: 56 }}>🎟️</div>
-      <h1>¡Compra completada!</h1>
+      <h1>{state === "pending" ? "Estamos confirmando tu pago…" : "¡Compra completada!"}</h1>
       {info && <p style={{ fontSize: 18, margin: "0 0 8px" }}>{info.name}</p>}
       <p style={{ opacity: 0.8 }}>
-        Tus entradas se están emitiendo. Recibirás el PDF con el código QR por email.
+        {state === "pending"
+          ? "El banco aún no nos ha confirmado el pago. En cuanto lo haga recibirás las entradas por email."
+          : "Tus entradas se están emitiendo. Recibirás el PDF con el código QR por email."}
       </p>
-      {info?.message && (
+      {info?.message && state === "ok" && (
         <p
           style={{
             whiteSpace: "pre-wrap",

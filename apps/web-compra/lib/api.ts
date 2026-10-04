@@ -80,8 +80,12 @@ export interface HeldSeat {
 export const fieldsFor = (fields: AttendeeFieldPublic[], ticketTypeId: string | null) =>
   fields.filter((f) => !f.ticketTypeIds?.length || (ticketTypeId != null && f.ticketTypeIds.includes(ticketTypeId)));
 
+export type PaymentMethod = "card" | "bizum";
+
 export interface EventDetail {
   attendeeFields: AttendeeFieldPublic[];
+  /** Cómo se puede pagar (según las pasarelas activas). */
+  paymentMethods?: PaymentMethod[];
   /** Hay códigos de descuento activos: se muestra la casilla para escribirlo. */
   couponsAvailable?: boolean;
   organizer: { name: string; slug: string; logoUrl: string | null; accentColor: string | null } | null;
@@ -181,6 +185,24 @@ export async function fetchConfirmation(
   eventId: string,
 ): Promise<{ name: string; message: string | null } | null> {
   const r = await fetch(`${API_URL}/shop/${slug}/events/${eventId}/confirmation`, { cache: "no-store" });
+  return r.ok ? r.json() : null;
+}
+
+/**
+ * Vuelta desde Redsys: envía el resultado firmado que trae la URL para que la API lo
+ * verifique y confirme el pago (si la notificación aún no llegó). Devuelve el estado.
+ */
+export async function confirmReturn(
+  slug: string,
+  orderId: string,
+  signed: Record<string, string>,
+): Promise<{ status: "PENDING" | "PAID" | "CANCELLED"; eventId: string; tickets: number } | null> {
+  const r = await fetch(`${API_URL}/shop/${slug}/orders/${orderId}/confirm-return`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(signed),
+    cache: "no-store",
+  });
   return r.ok ? r.json() : null;
 }
 
