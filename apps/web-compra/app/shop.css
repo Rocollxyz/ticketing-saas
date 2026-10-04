@@ -120,7 +120,7 @@ a { color: var(--accent); }
   grid-template-areas: "map side" "info side";
 }
 .ev-grid.no-map { grid-template-areas: "info side"; }
-.ev-map { grid-area: map; }
+.ev-map { grid-area: map; min-width: 0; } /* min-width 0: el plano se desplaza dentro, no ensancha */
 .ev-info { grid-area: info; display: grid; gap: 28px; }
 .ev-side { grid-area: side; grid-row: 1 / span 2; position: sticky; top: 16px; }
 .ev-grid.no-map .ev-side { grid-row: 1; }

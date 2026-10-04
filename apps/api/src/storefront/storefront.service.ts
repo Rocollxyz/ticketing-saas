@@ -13,7 +13,7 @@ import { hasActiveCouponTx } from "../catalog/coupon";
 import { listTx as listFieldsTx } from "../events/attendee-fields.service";
 import { PaymentRegistry } from "../payments/payment-registry";
 import { HoldReleaseService } from "../reservation/hold-release.service";
-import { ReservationService } from "../reservation/reservation.service";
+import { HOLD_TTL_MINUTES, ReservationService } from "../reservation/reservation.service";
 
 // Campos del perfil del promotor que son públicos (nunca ids internos ni fechas).
 const PUBLIC_PROFILE = {
@@ -313,6 +313,7 @@ export class StorefrontService {
           })),
           // Cómo se puede pagar (tarjeta, Bizum), según las pasarelas activas.
           paymentMethods: this.payments.methods(),
+          holdMinutes: HOLD_TTL_MINUTES,
           // Solo para mostrar (o no) la casilla «código de descuento»; nunca los códigos.
           couponsAvailable: await hasActiveCouponTx(tx, eventId),
           sales: st.open

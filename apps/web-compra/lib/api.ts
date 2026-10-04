@@ -96,6 +96,8 @@ export interface EventDetail {
     termsUrl: string | null;
     retentionDays: number;
   };
+  /** Minutos que se guardan las entradas al reservar. */
+  holdMinutes?: number;
   /** Cómo se puede pagar (según las pasarelas activas). */
   paymentMethods?: PaymentMethod[];
   /** Hay códigos de descuento activos: se muestra la casilla para escribirlo. */

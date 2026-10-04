@@ -105,6 +105,9 @@ directorio de promotores en la portada `/` (hoy es una demo fija).
   que declare cada promotor. La salida a Redsys desde un módulo (ventana completa) no está
   probada con un pago real dentro de un iframe.
 
+- **Plano de la taquilla**: sigue con butacas grandes (56 px); con planos de muchas columnas
+  se desborda. Reutilizar el plano compacto de la tienda (`SeatMap.tsx`) o esperar al de Raquel.
+
 **Después de producción:**
 - El comprador no puede pedir factura completa tras comprar (lo hace el promotor): llegará
   con el área del comprador.

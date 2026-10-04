@@ -36,6 +36,7 @@ import {
 import AttendeesForm from "./AttendeesForm";
 import BillingBox, { billingComplete, type BillingInput, EMPTY_BILLING } from "./BillingBox";
 import CouponBox, { type AppliedCoupon } from "./CouponBox";
+import SeatMap from "./SeatMap";
 import { inputStyle } from "./styles";
 import {
   connectToEvent,
@@ -104,7 +105,8 @@ export default function EventClient({
   const methods = detail.paymentMethods ?? ["card"];
   const [method, setMethod] = useState<PaymentMethod>("card");
   const [billing, setBilling] = useState<BillingInput>(EMPTY_BILLING);
-  const [step, setStep] = useState<"select" | "details">("select");
+  // Con reserva: ¿ya pasó los datos del comprador? (luego vienen asistentes, si hay, y el pago)
+  const [detailsDone, setDetailsDone] = useState(false);
   const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 
   // sessionId estable de esta pestaña: lo enviamos al reservar para que el servidor
@@ -248,6 +250,9 @@ export default function EventClient({
   const sendBilling = wantsInvoice || invoiceRequired;
   const billingOk = !sendBilling || billingComplete(billing);
 
+  // ¿Alguna plaza reservada pide datos de asistentes?
+  const needsAttendees = !!heldSeats?.some((s) => fieldsFor(detail.attendeeFields, s.ticketTypeId).length > 0);
+
   const canBuy = billingOk && sales.open && count > 0 && emailOk && !!buyerName.trim() && !ruleError && !loading;
 
   function toggle(seatId: string, isAvailable: boolean) {
@@ -259,16 +264,14 @@ export default function EventClient({
     });
   }
 
-  async function comprar() {
-    // Se valida ANTES de reservar: un email inválido no debe dejar asientos bloqueados.
-    if (!emailOk) {
-      setError("Introduce un email válido: te enviaremos ahí las entradas");
-      return;
-    }
+  /**
+   * Paso 1 → 2: RESERVA lo elegido y arranca el contador (como Ticketmaster o Eventbrite).
+   * Si algo ya no está, se avisa aquí, antes de pedir ningún dato.
+   */
+  async function reservar() {
     setLoading(true);
     setError(null);
     setExpired(false);
-    let held: ActiveHold | null = null;
     try {
       const holdRes = await fetch(`${API_URL}/shop/${slug}/holds`, {
         method: "POST",
@@ -283,20 +286,35 @@ export default function EventClient({
       const h = await holdRes.json();
       // Tiempo restante según el SERVIDOR (el reloj del comprador puede ir mal).
       const remaining = new Date(h.expiresAt).getTime() - new Date(h.serverNow).getTime();
-      held = { id: h.holdId, deadline: Date.now() + remaining };
-
-      // Si el evento pide datos de los asistentes, se piden AHORA (con las plazas ya
-      // bloqueadas y el contador corriendo) y el pago llega después.
-      const seats: HeldSeat[] = h.seats ?? [];
-      if (seats.some((s) => fieldsFor(detail.attendeeFields, s.ticketTypeId).length > 0)) {
-        setHold(held);
-        setHeldSeats(seats);
-        return;
-      }
-      await startCheckout(held);
+      setHold({ id: h.holdId, deadline: Date.now() + remaining });
+      setHeldSeats(h.seats ?? []);
+      setDetailsDone(false);
     } catch (e) {
-      // Si la reserva se hizo pero el pago no arrancó, se suelta para no bloquear plazas.
-      if (held) void releaseHold(held.id);
+      setError(e instanceof Error ? e.message : "Error inesperado");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  /**
+   * Paso 2 (con la reserva): si el evento pide datos de asistentes, se piden ahora; si no,
+   * se crea el pedido y el cobro. Un error (p. ej. NIF inválido) NO suelta la reserva.
+   */
+  async function pagar() {
+    if (!hold) return;
+    if (!emailOk) {
+      setError("Introduce un email válido: te enviaremos ahí las entradas");
+      return;
+    }
+    setError(null);
+    if (needsAttendees) {
+      setDetailsDone(true);
+      return;
+    }
+    setLoading(true);
+    try {
+      await startCheckout(hold);
+    } catch (e) {
       setError(e instanceof Error ? e.message : "Error inesperado");
     } finally {
       setLoading(false);
@@ -338,8 +356,6 @@ export default function EventClient({
       router.push(`${base}/success?event=${ev.id}`);
       return;
     }
-    setHeldSeats(null);
-    setHold(held);
     setCheckout({
       amountCents: Number(co.amountCents),
       clientSecret: co.clientSecret,
@@ -376,6 +392,7 @@ export default function EventClient({
     setHold(null);
     setHeldSeats(null);
     setCheckout(null);
+    setDetailsDone(false);
     setLoading(false);
     if (hasGeneral) refresh();
   }
@@ -385,6 +402,7 @@ export default function EventClient({
     setHold(null);
     setHeldSeats(null);
     setCheckout(null);
+    setDetailsDone(false);
     setExpired(true);
     if (hasGeneral) setTimeout(refresh, 25_000); // tras el barrido del servidor
   }, [hasGeneral, refresh]);
@@ -415,96 +433,12 @@ export default function EventClient({
     return () => io.disconnect();
   }, []);
 
-  const purchase = (
-    <div className="panel" ref={panelRef} id="comprar">
-      {!sales.open ? (
-        <>
-          <h2>Entradas</h2>
-          <div className={`notice ${ev.status === "CANCELLED" ? "error" : "warn"}`}>
-            {sales.message}
-            {sales.from && ` (a partir del ${formatDate(sales.from, ev.timezone)})`}
-          </div>
-        </>
-      ) : expired ? (
-        <>
-          <h2>Se ha agotado el tiempo</h2>
-          <p style={muted}>
-            Tus entradas se han liberado y no se ha realizado ningún cobro. Puedes volver a intentarlo si siguen
-            disponibles.
-          </p>
-          <button className="btn-primary" onClick={() => setExpired(false)}>
-            Volver a intentarlo
-          </button>
-        </>
-      ) : hold ? (
-        <>
-          <HoldTimer deadline={hold.deadline} onExpire={onExpire} onChange={changeSelection} busy={loading} />
-          {heldSeats && !checkout && (
-            <AttendeesForm
-              seats={heldSeats}
-              fields={detail.attendeeFields}
-              buyer={{ name: buyerName.trim(), email: email.trim() }}
-              busy={loading}
-              error={error}
-              onSubmit={submitAttendees}
-            />
-          )}
-          {checkout && stripePromise && (
-            <Elements
-              stripe={stripePromise}
-              options={{
-                clientSecret: checkout.clientSecret,
-                locale: "es",
-                // Mismo aspecto que la tienda: tema del promotor y su color de marca. Stripe
-                // pinta en su propio iframe: necesita colores reales, no variables CSS.
-                appearance: stripeAppearance(theme, detail.organizer?.accentColor ? accent : null),
-                fonts: [{ cssSrc: "https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" }],
-              }}
-            >
-              <PaymentForm slug={slug} base={base} eventId={ev.id} total={checkout.amountCents} email={email.trim()} deadline={hold.deadline} />
-            </Elements>
-          )}
-        </>
-      ) : step === "select" ? (
-        <>
+  // Paso 2 (con la reserva ya hecha): datos del comprador, factura, código y forma de pago.
+  const DETAILS = (
+    <>
           <div className="panel-steps">
-            <span className="on">1 · Entradas</span>
-            <span>›</span>
-            <span>2 · Tus datos</span>
-          </div>
-          {hasMap && (
-            <div style={{ display: "grid", gap: 6 }}>
-              {mixed && <strong style={{ fontSize: 14 }}>Asientos numerados</strong>}
-              <SelectedSeats detail={detail} selected={selected} onRemove={(id) => toggle(id, true)} />
-            </div>
-          )}
-          {hasGeneral && (
-            <div style={{ display: "grid" }}>
-              {mixed && <strong style={{ fontSize: 14, marginTop: 6 }}>Sin asiento</strong>}
-              {generalTypes.map((t) => (
-                <QuantityRow
-                  key={t.id}
-                  t={t}
-                  tz={ev.timezone}
-                  value={qty[t.id] ?? 0}
-                  disabled={false}
-                  onChange={(n) => setQty((p) => ({ ...p, [t.id]: n }))}
-                />
-              ))}
-            </div>
-          )}
-          {ruleError && <div className="notice warn">{ruleError}</div>}
-          {error && <div className="notice error">{error}</div>}
-          <TotalRow count={count} total={total} payable={payable} coupon={coupon} />
-          <button className="btn-primary" disabled={!canContinue} onClick={() => setStep("details")}>
-            {count === 0 ? (hasMap && !hasGeneral ? "Elige tus asientos" : "Elige tus entradas") : "Continuar"}
-          </button>
-        </>
-      ) : (
-        <>
-          <div className="panel-steps">
-            <button className="btn-link" style={{ fontSize: 12 }} onClick={() => setStep("select")}>
-              1 · Entradas
+            <button className="btn-link" style={{ fontSize: 12 }} onClick={changeSelection} disabled={loading}>
+              ← 1 · Entradas
             </button>
             <span>›</span>
             <span className="on">2 · Tus datos</span>
@@ -571,10 +505,115 @@ export default function EventClient({
           )}
           {error && <div className="notice error">{error}</div>}
           <TotalRow count={count} total={total} payable={payable} coupon={coupon} />
-          <button className="btn-primary" onClick={comprar} disabled={!canBuy}>
-            {loading ? "Procesando…" : payable === 0 ? "Reservar gratis" : `Pagar ${euros(payable)}`}
+          <button className="btn-primary" onClick={pagar} disabled={!canBuy}>
+            {loading
+              ? "Procesando…"
+              : needsAttendees
+                ? "Continuar"
+                : payable === 0
+                  ? "Confirmar (gratis)"
+                  : `Pagar ${euros(payable)}`}
           </button>
           {detail.privacy && <PrivacyNotice p={detail.privacy} />}
+        </>
+  );
+
+  const purchase = (
+    <div className="panel" ref={panelRef} id="comprar">
+      {!sales.open ? (
+        <>
+          <h2>Entradas</h2>
+          <div className={`notice ${ev.status === "CANCELLED" ? "error" : "warn"}`}>
+            {sales.message}
+            {sales.from && ` (a partir del ${formatDate(sales.from, ev.timezone)})`}
+          </div>
+        </>
+      ) : expired ? (
+        <>
+          <h2>Se ha agotado el tiempo</h2>
+          <p style={muted}>
+            Tus entradas se han liberado y no se ha realizado ningún cobro. Puedes volver a intentarlo si siguen
+            disponibles.
+          </p>
+          <button className="btn-primary" onClick={() => setExpired(false)}>
+            Volver a intentarlo
+          </button>
+        </>
+      ) : !hold ? (
+        <>
+          <div className="panel-steps">
+            <span className="on">1 · Entradas</span>
+            <span>›</span>
+            <span>2 · Tus datos</span>
+          </div>
+          {hasMap && (
+            <div style={{ display: "grid", gap: 6 }}>
+              {mixed && <strong style={{ fontSize: 14 }}>Asientos numerados</strong>}
+              <SelectedSeats detail={detail} selected={selected} onRemove={(id) => toggle(id, true)} />
+            </div>
+          )}
+          {hasGeneral && (
+            <div style={{ display: "grid" }}>
+              {mixed && <strong style={{ fontSize: 14, marginTop: 6 }}>Sin asiento</strong>}
+              {generalTypes.map((t) => (
+                <QuantityRow
+                  key={t.id}
+                  t={t}
+                  tz={ev.timezone}
+                  value={qty[t.id] ?? 0}
+                  disabled={false}
+                  onChange={(n) => setQty((p) => ({ ...p, [t.id]: n }))}
+                />
+              ))}
+            </div>
+          )}
+          {ruleError && <div className="notice warn">{ruleError}</div>}
+          {error && <div className="notice error">{error}</div>}
+          <TotalRow count={count} total={total} payable={payable} coupon={coupon} />
+          <button className="btn-primary" disabled={!canContinue || loading} onClick={reservar}>
+            {loading
+              ? "Reservando…"
+              : count === 0
+                ? hasMap && !hasGeneral
+                  ? "Elige tus asientos"
+                  : "Elige tus entradas"
+                : "Continuar"}
+          </button>
+          {count > 0 && (
+            <span style={{ ...muted, fontSize: 12, textAlign: "center" }}>
+              Al continuar te las guardamos {detail.holdMinutes ?? 10} minutos mientras completas la compra.
+            </span>
+          )}
+        </>
+      ) : (
+        <>
+          <HoldTimer deadline={hold.deadline} onExpire={onExpire} onChange={changeSelection} busy={loading} />
+          {!checkout && !(needsAttendees && detailsDone) && DETAILS}
+          {heldSeats && !checkout && needsAttendees && detailsDone && (
+            <AttendeesForm
+              seats={heldSeats}
+              fields={detail.attendeeFields}
+              buyer={{ name: buyerName.trim(), email: email.trim() }}
+              busy={loading}
+              error={error}
+              onSubmit={submitAttendees}
+            />
+          )}
+          {checkout && stripePromise && (
+            <Elements
+              stripe={stripePromise}
+              options={{
+                clientSecret: checkout.clientSecret,
+                locale: "es",
+                // Mismo aspecto que la tienda: tema del promotor y su color de marca. Stripe
+                // pinta en su propio iframe: necesita colores reales, no variables CSS.
+                appearance: stripeAppearance(theme, detail.organizer?.accentColor ? accent : null),
+                fonts: [{ cssSrc: "https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" }],
+              }}
+            >
+              <PaymentForm slug={slug} base={base} eventId={ev.id} total={checkout.amountCents} email={email.trim()} deadline={hold.deadline} />
+            </Elements>
+          )}
         </>
       )}
     </div>
@@ -1049,109 +1088,6 @@ function Stepper({ label, onClick, disabled }: { label: string; onClick: () => v
     >
       {label}
     </button>
-  );
-}
-
-/** Plano posicional (numerado): posX = columna, posY = fila (0 = junto al escenario). */
-function SeatMap({
-  detail,
-  selected,
-  unavailable,
-  sold,
-  locked,
-  onToggle,
-}: {
-  detail: EventDetail;
-  selected: Set<string>;
-  unavailable: Set<string>;
-  sold: Set<string>;
-  locked: boolean;
-  onToggle: (id: string, available: boolean) => void;
-}) {
-  const placed = detail.seats.filter((s) => s.posX != null && s.posY != null);
-  const unplaced = detail.seats.filter((s) => s.posX == null || s.posY == null);
-  const cols = placed.length ? Math.max(...placed.map((s) => s.posX!)) + 1 : 1;
-  const rows = placed.length ? Math.max(...placed.map((s) => s.posY!)) + 1 : 1;
-
-  function renderSeat(s: (typeof detail.seats)[number], grid: boolean) {
-    const isSel = selected.has(s.id);
-    const isSold = sold.has(s.id);
-    const isAvailable = !unavailable.has(s.id) && s.precioCents != null;
-    return (
-      <button
-        key={s.id}
-        onClick={() => onToggle(s.id, isAvailable)}
-        disabled={!isAvailable || locked}
-        title={`${s.fila}${s.numero} · ${s.categoria ?? ""} · ${euros(s.precioCents)}`}
-        style={{
-          gridColumnStart: grid ? s.posX! + 1 : undefined,
-          gridRowStart: grid ? s.posY! + 1 : undefined,
-          padding: "10px 6px",
-          borderRadius: 8,
-          border: isSel ? "2px solid var(--accent)" : "1px solid var(--border)",
-          background: !isAvailable ? (isSold ? "var(--seat-sold)" : "var(--seat-held)") : isSel ? "var(--surface-2)" : "var(--surface)",
-          color: !isAvailable ? "var(--seat-off-text)" : "var(--text)",
-          cursor: isAvailable && !locked ? "pointer" : "not-allowed",
-          fontSize: 13,
-          transition: "background 0.25s, border-color 0.25s",
-        }}
-      >
-        <div style={{ fontWeight: 600 }}>
-          {s.fila}
-          {s.numero}
-        </div>
-        <div style={{ opacity: 0.7 }}>{s.categoria}</div>
-        <div>{euros(s.precioCents)}</div>
-        {!isAvailable && <div style={{ fontSize: 11 }}>{isSold ? "vendido" : "ocupado"}</div>}
-      </button>
-    );
-  }
-
-  return (
-    <div>
-      <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 13, ...muted, marginBottom: 12 }}>
-        {detail.ticketTypes.filter((t) => (t.seating ?? "RESERVED") === "RESERVED").map((t) => (
-          <span key={t.id}>
-            <strong style={{ color: "var(--text)" }}>{t.name}</strong> {euros(t.precioCents)}
-            {t.regularCents != null && ` (anticipada, luego ${euros(t.regularCents)})`}
-            {!t.salesOpen && ` · ${t.salesMessage}`}
-          </span>
-        ))}
-      </div>
-      <div
-        style={{
-          textAlign: "center",
-          padding: "6px 0",
-          marginBottom: 16,
-          borderRadius: 6,
-          background: "linear-gradient(var(--stage-from),var(--stage-to))",
-          color: "var(--info-text)",
-          letterSpacing: 4,
-          fontSize: 12,
-        }}
-      >
-        ESCENARIO
-      </div>
-      {placed.length > 0 && (
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: `repeat(${cols}, minmax(56px, 1fr))`,
-            gridTemplateRows: `repeat(${rows}, auto)`,
-            gap: 10,
-            justifyContent: "center",
-          }}
-        >
-          {placed.map((s) => renderSeat(s, true))}
-        </div>
-      )}
-      {unplaced.length > 0 && (
-        <>
-          <p style={{ fontSize: 12, color: "var(--faint)", marginTop: 16 }}>Sin ubicar en el plano:</p>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>{unplaced.map((s) => renderSeat(s, false))}</div>
-        </>
-      )}
-    </div>
   );
 }
 
