@@ -70,7 +70,8 @@ export class SeatmapService {
           precioCents: currentPriceCents(schema.ticketType.id),
         })
         .from(schema.ticketType)
-        .where(eq(schema.ticketType.eventId, eventId))
+        // Solo las numeradas: las generales no tienen asiento en el plano.
+        .where(and(eq(schema.ticketType.eventId, eventId), eq(schema.ticketType.seating, "RESERVED")))
         .orderBy(schema.ticketType.sortOrder, schema.ticketType.name);
 
       const seats = await tx
@@ -165,13 +166,13 @@ export class SeatmapService {
           await tx
             .select({ id: schema.ticketType.id })
             .from(schema.ticketType)
-            .where(eq(schema.ticketType.eventId, eventId))
+            .where(and(eq(schema.ticketType.eventId, eventId), eq(schema.ticketType.seating, "RESERVED")))
         ).map((t) => t.id),
       );
 
       const checkType = (id: string | null | undefined) => {
         if (id != null && !validTypes.has(id)) {
-          throw new BadRequestException("Categoría inválida para el evento");
+          throw new BadRequestException("Categoría inválida para el plano (¿es una entrada general?)");
         }
       };
 

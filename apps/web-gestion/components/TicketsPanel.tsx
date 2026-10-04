@@ -842,7 +842,8 @@ function ManualIssueForm({
       <h3 className="section-title">Añadir entradas a mano (invitaciones)</h3>
       <span className="muted" style={{ fontSize: 14 }}>
         Se emiten sin cobro y cuentan para el aforo.
-        {detail.event.seatingMode === "RESERVED" && " Se asignan los primeros asientos libres de cada categoría."}
+        {detail.ticketTypes.some((t) => t.seating === "RESERVED") &&
+          " En las categorías con asiento se asignan los primeros libres."}
       </span>
       <div className="grid2">
         {detail.ticketTypes.map((t) => (

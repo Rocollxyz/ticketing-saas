@@ -41,35 +41,38 @@ export default function PosTerminal({
   }, [eventId]);
 
   const seats = map?.seats ?? [];
-  const general = map?.event.seatingMode === "GENERAL";
+  // Evento mixto: plano para las categorías con asiento y cantidades para las de aforo.
+  const generalTypes = (map?.ticketTypes ?? []).filter((t) => (t.seating ?? map?.event.seatingMode) === "GENERAL");
+  const hasGeneral = generalTypes.length > 0;
   const placed = seats.filter((s) => s.posX != null && s.posY != null);
   const cols = placed.length ? Math.max(...placed.map((s) => s.posX!)) + 1 : 1;
   const rows = placed.length ? Math.max(...placed.map((s) => s.posY!)) + 1 : 1;
-  const count = general ? Object.values(qty).reduce((a, b) => a + b, 0) : selected.size;
-  const total = general
-    ? (map?.ticketTypes ?? []).reduce((a, t) => a + (qty[t.id] ?? 0) * (t.precioCents ?? 0), 0)
-    : seats.filter((s) => selected.has(s.id)).reduce((a, s) => a + (s.precioCents ?? 0), 0);
+  const count = selected.size + Object.values(qty).reduce((a, b) => a + b, 0);
+  const total =
+    generalTypes.reduce((a, t) => a + (qty[t.id] ?? 0) * (t.precioCents ?? 0), 0) +
+    seats.filter((s) => selected.has(s.id)).reduce((a, s) => a + (s.precioCents ?? 0), 0);
 
   // Plazas de la venta en curso (para pedir los datos de cada asistente).
   const fields = map?.attendeeFields ?? [];
-  const slots: Slot[] = general
-    ? (map?.ticketTypes ?? []).flatMap((t) =>
-        Array.from({ length: qty[t.id] ?? 0 }, (_, i) => ({
-          key: `${t.id}:${i}`,
-          label: `${t.name} #${i + 1}`,
-          ticketTypeId: t.id,
-          fields: fieldsFor(fields, t.id),
-        })),
-      )
-    : seats
-        .filter((s) => selected.has(s.id))
-        .map((s) => ({
-          key: s.id,
-          label: `Asiento ${s.fila}${s.numero}`,
-          seatId: s.id,
-          ticketTypeId: s.ticketTypeId,
-          fields: fieldsFor(fields, s.ticketTypeId),
-        }));
+  const slots: Slot[] = [
+    ...seats
+      .filter((s) => selected.has(s.id))
+      .map((s) => ({
+        key: s.id,
+        label: `Asiento ${s.fila}${s.numero}`,
+        seatId: s.id,
+        ticketTypeId: s.ticketTypeId,
+        fields: fieldsFor(fields, s.ticketTypeId),
+      })),
+    ...generalTypes.flatMap((t) =>
+      Array.from({ length: qty[t.id] ?? 0 }, (_, i) => ({
+        key: `${t.id}:${i}`,
+        label: `${t.name} #${i + 1}`,
+        ticketTypeId: t.id,
+        fields: fieldsFor(fields, t.id),
+      })),
+    ),
+  ];
 
   function toggle(s: PosSeat) {
     if (!s.disponible) return;
@@ -92,9 +95,7 @@ export default function PosTerminal({
       const res = await sell(
         token,
         eventId,
-        general
-          ? { quantities: Object.fromEntries(Object.entries(qty).filter(([, n]) => n > 0)) }
-          : { seatIds: [...selected] },
+        { seatIds: [...selected], quantities: Object.fromEntries(Object.entries(qty).filter(([, n]) => n > 0)) },
         method,
         email,
         {
@@ -148,7 +149,7 @@ export default function PosTerminal({
             <div key={t.ticketId} style={ticketCard}>
               <div style={{ fontWeight: 700, fontSize: 16, color: "#111" }}>{eventName}</div>
               <div style={{ fontSize: 14, color: "#333", margin: "4px 0 10px" }}>
-                {general ? t.seat : `Asiento ${t.seat}`}
+                {/^[A-Z]+\d+$/.test(t.seat) ? `Asiento ${t.seat}` : t.seat}
                 {t.attendeeName && <div style={{ fontWeight: 600, color: "#111" }}>{t.attendeeName}</div>}
               </div>
               <QRCodeSVG value={t.qr} size={150} />
@@ -173,9 +174,9 @@ export default function PosTerminal({
 
       {error && <p style={{ color: "#ff6b6b" }}>{error}</p>}
 
-      {general && (
+      {hasGeneral && (
         <div style={{ display: "grid", gap: 10, margin: "16px 0" }}>
-          {map!.ticketTypes.map((t) => {
+          {generalTypes.map((t) => {
             const n = qty[t.id] ?? 0;
             const set = (v: number) => setQty((p) => ({ ...p, [t.id]: Math.max(0, Math.min(t.disponibles, v)) }));
             return (
@@ -195,7 +196,7 @@ export default function PosTerminal({
         </div>
       )}
 
-      {!general && (
+      {placed.length > 0 && (
       <div style={{ textAlign: "center", padding: "6px 0", margin: "16px 0", borderRadius: 6, background: "linear-gradient(#23303f,#161d27)", color: "#9fb4cc", letterSpacing: 4, fontSize: 12, maxWidth: cols * 64 }}>
         ESCENARIO
       </div>

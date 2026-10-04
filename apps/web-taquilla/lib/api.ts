@@ -11,6 +11,8 @@ export interface PosEvent {
 export interface PosTicketType {
   id: string;
   name: string;
+  /** Con asiento (plano) o sin asiento (por cantidad). */
+  seating?: "RESERVED" | "GENERAL";
   precioCents: number | null;
   disponibles: number;
 }
@@ -94,7 +96,7 @@ export const getSeats = (token: string, eventId: string) =>
 export const sell = (
   token: string,
   eventId: string,
-  selection: { seatIds: string[] } | { quantities: Record<string, number> },
+  selection: { seatIds?: string[]; quantities?: Record<string, number> },
   method: "cash" | "card",
   buyerEmail?: string,
   extra: {

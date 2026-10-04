@@ -43,6 +43,8 @@ export const event = pgTable(
     endsAt: timestamp("ends_at", { withTimezone: true }),
     doorsAt: timestamp("doors_at", { withTimezone: true }), // apertura de puertas
     visibility: eventVisibility("visibility").notNull().default("PUBLIC"),
+    // Resumen DERIVADO de sus categorías: RESERVED si alguna es numerada (hay plano),
+    // GENERAL si todas son de aforo. Lo mantiene la API; la verdad está en ticket_type.seating.
     seatingMode: seatingMode("seating_mode").notNull().default("RESERVED"),
     // Ventana de venta online del evento (null = desde publicar / hasta el inicio).
     salesStartAt: timestamp("sales_start_at", { withTimezone: true }),
@@ -92,8 +94,11 @@ export const ticketType = pgTable(
     tenantId: tenantId().references(() => tenant.id, { onDelete: "restrict" }),
     eventId: uuid("event_id").notNull(),
     name: text("name").notNull(), // general, VIP, reducida…
+    // Numerada (asiento en el plano) o general (aforo, sin asiento). Un evento puede
+    // mezclar ambas: p. ej. platea numerada + pista de pie. Fuente de verdad del modo.
+    seating: seatingMode("seating").notNull().default("RESERVED"),
     description: text("description"),
-    // Aforo de la categoría en eventos de ENTRADA GENERAL (en numerados lo da el plano).
+    // Aforo de la categoría GENERAL (en las numeradas lo da el plano).
     capacity: integer("capacity"),
     // Ventana de venta online propia de la categoría (p.ej. "anticipada").
     salesStartAt: timestamp("sales_start_at", { withTimezone: true }),

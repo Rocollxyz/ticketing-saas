@@ -50,70 +50,73 @@ export class ReservationService {
     private readonly emitter: EventEmitter2,
   ) {}
 
-  /**
-   * Crea un HOLD sobre asientos concretos (eventos NUMERADOS). Antes libera holds
-   * expirados del evento (lazy release) y valida que todo sea vendible (ver
-   * assertSellableTx). Todo en una transacción → atómico.
-   */
-  async createHold(eventId: string, seatIds: string[], sessionId: string, channel: SalesChannel = "online") {
-    const ids = [...new Set(seatIds ?? [])];
-    if (ids.length === 0) {
-      throw new BadRequestException("seatIds vacío");
-    }
-    const result = await this.db.run(async (tx) => {
-      await this.releaseExpiredTx(tx, eventId);
-      const ev = await this.loadSellableEventTx(tx, eventId, channel);
-      if (ev.seatingMode !== "RESERVED") {
-        throw new BadRequestException("Evento de entrada general: indica cantidades, no asientos");
-      }
-      const seats = await tx
-        .select({ id: schema.seat.id, ticketTypeId: schema.seat.ticketTypeId })
-        .from(schema.seat)
-        .where(and(eq(schema.seat.eventId, eventId), inArray(schema.seat.id, ids)));
-      if (seats.length !== ids.length) {
-        throw new BadRequestException("Algún asiento no pertenece al evento");
-      }
-      const perType = new Map<string, number>();
-      for (const s of seats) {
-        if (!s.ticketTypeId) throw new BadRequestException("Hay asientos sin categoría");
-        perType.set(s.ticketTypeId, (perType.get(s.ticketTypeId) ?? 0) + 1);
-      }
-      await this.assertOrderRulesTx(tx, ev, perType, channel);
-      return this.insertHoldTx(tx, eventId, ids, sessionId);
-    });
-    this.emitHeld(eventId, result.seatIds, sessionId);
-    return result;
+  /** Reserva de asientos concretos (categorías numeradas). Atajo de `createHoldMixed`. */
+  createHold(eventId: string, seatIds: string[], sessionId: string, channel: SalesChannel = "online") {
+    return this.createHoldMixed(eventId, { seatIds }, sessionId, channel);
   }
 
-  /**
-   * Crea un HOLD por CANTIDAD por categoría (eventos de ENTRADA GENERAL). Elige plazas
-   * libres con FOR UPDATE SKIP LOCKED: dos compras simultáneas nunca cogen la misma
-   * plaza (cada una salta las que la otra tiene bloqueadas), y si aun así chocaran, el
-   * índice anti-sobreventa sigue siendo la última barrera.
-   */
-  async createHoldForQuantities(
+  /** Reserva por cantidad (categorías generales). Atajo de `createHoldMixed`. */
+  createHoldForQuantities(
     eventId: string,
     quantities: Record<string, number>,
     sessionId: string,
     channel: SalesChannel = "online",
   ) {
-    const perType = new Map<string, number>();
-    for (const [tt, n] of Object.entries(quantities ?? {})) {
+    return this.createHoldMixed(eventId, { quantities }, sessionId, channel);
+  }
+
+  /**
+   * Crea UN hold con asientos concretos (categorías NUMERADAS) y/o cantidades por
+   * categoría (categorías GENERALES): un mismo evento puede vender platea numerada y
+   * pista de pie en un solo pedido. Antes libera holds expirados (lazy release) y valida
+   * que todo sea vendible. Las plazas generales se eligen con FOR UPDATE SKIP LOCKED: dos
+   * compras simultáneas nunca cogen la misma, y si aun así chocaran, el índice
+   * anti-sobreventa (hold_seat_active_uq) es la última barrera. Todo en una transacción.
+   */
+  async createHoldMixed(
+    eventId: string,
+    selection: { seatIds?: string[]; quantities?: Record<string, number> },
+    sessionId: string,
+    channel: SalesChannel = "online",
+  ) {
+    const ids = [...new Set(selection.seatIds ?? [])];
+    const wanted = new Map<string, number>();
+    for (const [tt, n] of Object.entries(selection.quantities ?? {})) {
       if (!Number.isInteger(n) || n < 0) throw new BadRequestException("Cantidad inválida");
-      if (n > 0) perType.set(tt, n);
+      if (n > 0) wanted.set(tt, n);
     }
-    if (perType.size === 0) throw new BadRequestException("Elige al menos una entrada");
+    if (ids.length === 0 && wanted.size === 0) throw new BadRequestException("Elige al menos una entrada");
 
     const result = await this.db.run(async (tx) => {
       await this.releaseExpiredTx(tx, eventId);
       const ev = await this.loadSellableEventTx(tx, eventId, channel);
-      if (ev.seatingMode !== "GENERAL") {
-        throw new BadRequestException("Evento con asientos numerados: elige asientos");
-      }
-      await this.assertOrderRulesTx(tx, ev, perType, channel);
 
-      const picked: string[] = [];
-      for (const [ticketTypeId, n] of perType) {
+      // Asientos concretos: del evento, numerados y con categoría.
+      const perType = new Map<string, number>();
+      if (ids.length) {
+        const seats = await tx
+          .select({ id: schema.seat.id, ticketTypeId: schema.seat.ticketTypeId, isGeneral: schema.seat.isGeneral })
+          .from(schema.seat)
+          .where(and(eq(schema.seat.eventId, eventId), inArray(schema.seat.id, ids)));
+        if (seats.length !== ids.length) throw new BadRequestException("Algún asiento no pertenece al evento");
+        for (const s of seats) {
+          if (s.isGeneral) throw new BadRequestException("Las entradas generales se piden por cantidad, no por asiento");
+          if (!s.ticketTypeId) throw new BadRequestException("Hay asientos sin categoría");
+          perType.set(s.ticketTypeId, (perType.get(s.ticketTypeId) ?? 0) + 1);
+        }
+      }
+      for (const [tt, n] of wanted) perType.set(tt, (perType.get(tt) ?? 0) + n);
+
+      const types = await this.assertOrderRulesTx(tx, ev, perType, channel);
+      // Las cantidades solo valen para categorías generales (las numeradas, por asiento).
+      for (const tt of wanted.keys()) {
+        if (types.get(tt)?.seating !== "GENERAL") {
+          throw new BadRequestException(`${types.get(tt)?.name ?? "Categoría"}: elige los asientos en el plano`);
+        }
+      }
+
+      const picked = [...ids];
+      for (const [ticketTypeId, n] of wanted) {
         const free = await tx
           .select({ id: schema.seat.id })
           .from(schema.seat)
@@ -129,10 +132,9 @@ export class ReservationService {
           .limit(n)
           .for("update", { skipLocked: true });
         if (free.length < n) {
+          const name = types.get(ticketTypeId)?.name ?? "esa categoría";
           throw new ConflictException(
-            free.length === 0
-              ? "Entradas agotadas para esa categoría"
-              : `Solo quedan ${free.length} entradas de esa categoría`,
+            free.length === 0 ? `${name}: entradas agotadas` : `${name}: solo quedan ${free.length} entradas`,
           );
         }
         picked.push(...free.map((f) => f.id));
@@ -178,7 +180,7 @@ export class ReservationService {
     ev: typeof schema.event.$inferSelect,
     perType: Map<string, number>,
     channel: SalesChannel,
-  ) {
+  ): Promise<Map<string, typeof schema.ticketType.$inferSelect>> {
     const types = await tx
       .select()
       .from(schema.ticketType)
@@ -188,7 +190,8 @@ export class ReservationService {
     if (types.length !== perType.size) {
       throw new BadRequestException("Categoría inválida para el evento");
     }
-    if (channel !== "online") return; // en taquilla manda el taquillero; a mano, el promotor
+    const byId = new Map(types.map((t) => [t.id, t]));
+    if (channel !== "online") return byId; // en taquilla manda el taquillero; a mano, el promotor
 
     const total = [...perType.values()].reduce((a, b) => a + b, 0);
     if (total > ev.maxPerOrder) {
@@ -203,6 +206,7 @@ export class ReservationService {
         throw new BadRequestException(`${tt.name}: máximo ${tt.maxPerOrder} por pedido`);
       }
     }
+    return byId;
   }
 
   private async insertHoldTx(tx: Tx, eventId: string, seatIds: string[], sessionId: string) {

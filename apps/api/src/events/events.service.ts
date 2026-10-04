@@ -115,8 +115,11 @@ export class EventsService {
       .where(eq(schema.event.id, eventId));
 
     const [tn] = await tx.select({ regime: schema.tenant.taxRegime }).from(schema.tenant);
+    const mixed = types.some((t) => t.tt.seating === "RESERVED") && types.some((t) => t.tt.seating === "GENERAL");
     return {
       event: ev,
+      // Mezcla numeradas y generales (p. ej. platea + pista).
+      mixed,
       venue: venue ?? null,
       // Nombre del impuesto del promotor (IVA o IGIC en Canarias) para la consola.
       taxName: tn?.regime === "IGIC" ? "IGIC" : "IVA",
@@ -296,15 +299,8 @@ export class EventsService {
         );
       }
 
-      if (src.seatingMode === "GENERAL") {
-        for (const tt of types) {
-          const [{ n }] = await tx
-            .select({ n: sql<number>`count(*)`.mapWith(Number) })
-            .from(schema.seat)
-            .where(and(eq(schema.seat.ticketTypeId, tt.id), eq(schema.seat.isGeneral, true)));
-          await syncGeneralSeats(tx, tenantId, copy.id, typeMap.get(tt.id)!, n);
-        }
-      } else {
+      // Numeradas: se copia el plano (zonas y asientos con posición).
+      if (types.some((t) => t.seating === "RESERVED") || src.seatingMode === "RESERVED") {
         const zones = await tx.select().from(schema.zone).where(eq(schema.zone.eventId, eventId));
         const zoneMap = new Map<string, string>();
         for (const z of zones) {
@@ -333,6 +329,14 @@ export class EventsService {
           );
         }
       }
+      // Generales: mismo aforo (después del plano, para reutilizar su zona).
+      for (const tt of types.filter((t) => t.seating === "GENERAL")) {
+        const [{ n }] = await tx
+          .select({ n: sql<number>`count(*)`.mapWith(Number) })
+          .from(schema.seat)
+          .where(and(eq(schema.seat.ticketTypeId, tt.id), eq(schema.seat.isGeneral, true)));
+        await syncGeneralSeats(tx, tenantId, copy.id, typeMap.get(tt.id)!, n);
+      }
       return copy;
     });
   }
@@ -345,11 +349,19 @@ export class EventsService {
     if (!ev.venueId) problems.push("Falta el recinto");
 
     const types = await tx
-      .select({ name: schema.ticketType.name, price: currentPriceCents(schema.ticketType.id) })
+      .select({
+        name: schema.ticketType.name,
+        seating: schema.ticketType.seating,
+        price: currentPriceCents(schema.ticketType.id),
+        seats: sql<number>`(select count(*) from seat s where s.ticket_type_id = ${qualified(schema.ticketType.id)})`.mapWith(Number),
+      })
       .from(schema.ticketType)
       .where(eq(schema.ticketType.eventId, ev.id));
     if (types.length === 0) problems.push("Añade al menos un tipo de entrada");
-    for (const t of types) if (t.price == null) problems.push(`«${t.name}» no tiene precio vigente`);
+    for (const t of types) {
+      if (t.price == null) problems.push(`«${t.name}» no tiene precio vigente`);
+      if (t.seating === "RESERVED" && t.seats === 0) problems.push(`«${t.name}» es numerada pero no tiene asientos en el plano`);
+    }
 
     const [counts] = await tx
       .select({
@@ -358,10 +370,10 @@ export class EventsService {
       })
       .from(schema.seat)
       .where(eq(schema.seat.eventId, ev.id));
-    if (ev.seatingMode === "RESERVED") {
-      if (counts.total === 0) problems.push("El plano no tiene asientos");
-      else if (counts.unassigned > 0) problems.push(`${counts.unassigned} asiento(s) sin categoría en el plano`);
-    } else if (counts.total === 0 && types.length > 0) {
+    if (types.some((t) => t.seating === "RESERVED") && counts.unassigned > 0) {
+      problems.push(`${counts.unassigned} asiento(s) sin categoría en el plano`);
+    }
+    if (counts.total === 0 && types.length > 0 && !problems.some((p) => p.includes("plano"))) {
       problems.push("El aforo total es 0");
     }
     return problems;
@@ -385,6 +397,8 @@ export class EventsService {
       throw new ConflictException("Ya hay reservas o ventas: no se puede cambiar el tipo de aforo");
     }
     await tx.delete(schema.seat).where(eq(schema.seat.eventId, ev.id));
+    // Todas sus categorías pasan al modo elegido (para mezclar, se elige por categoría).
+    await tx.update(schema.ticketType).set({ seating: mode }).where(eq(schema.ticketType.eventId, ev.id));
     if (mode === "GENERAL") {
       const types = await tx
         .select({ id: schema.ticketType.id, capacity: schema.ticketType.capacity })

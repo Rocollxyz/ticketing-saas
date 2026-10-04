@@ -36,6 +36,8 @@ export interface ShopSeat {
 export interface ShopTicketType {
   id: string;
   name: string;
+  /** Numerada (se elige en el plano) o general (por cantidad). */
+  seating?: "RESERVED" | "GENERAL";
   description: string | null;
   precioCents: number | null;
   /** Precio normal cuando ahora rige el anticipado (si no, null). */

@@ -10,7 +10,7 @@ import { and, eq, sql } from "drizzle-orm";
 import * as input from "../common/input";
 import { getStore } from "../database/tenant-context";
 import { TenantDb } from "../database/tenant-db.service";
-import { seatHasHistory, syncGeneralSeats } from "./general-seats";
+import { seatHasHistory, syncEventSeatingTx, syncGeneralSeats } from "./general-seats";
 
 type Tx = Parameters<Parameters<TenantDb["run"]>[0]>[0];
 
@@ -39,17 +39,27 @@ export class TicketTypesService {
     const tenantId = getStore()!.tenantId;
     return this.db.run(async (tx) => {
       const ev = await this.editableEventTx(tx, eventId);
-      if (ev.seatingMode === "GENERAL" && d.capacity == null) {
-        throw new BadRequestException("Aforo: obligatorio en eventos de entrada general");
+      // Sin indicarlo, la categoría nueva sigue el modo del evento.
+      const seating = d.seating ?? ev.seatingMode;
+      if (seating === "GENERAL" && d.capacity == null) {
+        throw new BadRequestException("Aforo: obligatorio en las entradas generales");
       }
       const [tt] = await tx
         .insert(schema.ticketType)
-        .values({ ...d.fields, name: d.fields.name!, tenantId, eventId, capacity: d.capacity ?? null })
+        .values({
+          ...d.fields,
+          name: d.fields.name!,
+          tenantId,
+          eventId,
+          seating,
+          capacity: seating === "GENERAL" ? (d.capacity ?? null) : null,
+        })
         .returning();
       await this.writePricesTx(tx, tenantId, tt.id, d.priceCents!, d.earlyBird ?? null);
-      if (ev.seatingMode === "GENERAL") {
+      if (seating === "GENERAL") {
         await syncGeneralSeats(tx, tenantId, eventId, tt.id, d.capacity!);
       }
+      await syncEventSeatingTx(tx, eventId);
       return tt;
     });
   }
@@ -59,8 +69,10 @@ export class TicketTypesService {
     const d = this.parse(body, false);
     const tenantId = getStore()!.tenantId;
     return this.db.run(async (tx) => {
-      const ev = await this.editableEventTx(tx, eventId);
+      await this.editableEventTx(tx, eventId);
       const tt = await this.loadTx(tx, eventId, ticketTypeId);
+      const seating = d.seating ?? tt.seating;
+      if (seating !== tt.seating) await this.switchSeatingTx(tx, ticketTypeId, seating, d.capacity ?? tt.capacity);
       const merged = { ...tt, ...d.fields };
       input.assertOrder(merged.salesStartAt, merged.salesEndAt, "El fin de venta debe ser posterior a su inicio");
       if (merged.maxPerOrder != null && merged.maxPerOrder < merged.minPerOrder) {
@@ -71,7 +83,8 @@ export class TicketTypesService {
         .update(schema.ticketType)
         .set({
           ...d.fields,
-          ...(d.capacity !== undefined ? { capacity: d.capacity } : {}),
+          seating,
+          ...(seating === "RESERVED" ? { capacity: null } : d.capacity !== undefined ? { capacity: d.capacity } : {}),
           updatedAt: new Date(),
         })
         .where(eq(schema.ticketType.id, ticketTypeId));
@@ -86,9 +99,12 @@ export class TicketTypesService {
           d.earlyBird !== undefined ? d.earlyBird : current.early,
         );
       }
-      if (ev.seatingMode === "GENERAL" && d.capacity != null) {
-        await syncGeneralSeats(tx, tenantId, eventId, ticketTypeId, d.capacity);
+      if (seating === "GENERAL") {
+        const capacity = d.capacity ?? tt.capacity;
+        if (capacity == null) throw new BadRequestException("Aforo: obligatorio en las entradas generales");
+        await syncGeneralSeats(tx, tenantId, eventId, ticketTypeId, capacity);
       }
+      await syncEventSeatingTx(tx, eventId);
       return { ok: true };
     });
   }
@@ -118,8 +134,40 @@ export class TicketTypesService {
         .where(eq(schema.seat.ticketTypeId, ticketTypeId));
       await tx.delete(schema.price).where(eq(schema.price.ticketTypeId, ticketTypeId));
       await tx.delete(schema.ticketType).where(eq(schema.ticketType.id, ticketTypeId));
+      await syncEventSeatingTx(tx, eventId);
       return { ok: true };
     });
+  }
+
+  /**
+   * Cambio numerada ↔ general de UNA categoría, solo si ninguna de sus plazas tiene
+   * historial. A general: sus asientos del plano quedan sin categoría (el plano no se
+   * pierde) y se crean sus plazas de aforo. A numerada: se borran sus plazas de aforo.
+   */
+  private async switchSeatingTx(
+    tx: Tx,
+    ticketTypeId: string,
+    seating: "RESERVED" | "GENERAL",
+    capacity: number | null,
+  ) {
+    const [{ used }] = await tx
+      .select({ used: sql<number>`count(*) filter (where ${seatHasHistory})`.mapWith(Number) })
+      .from(schema.seat)
+      .where(eq(schema.seat.ticketTypeId, ticketTypeId));
+    if (used > 0) {
+      throw new ConflictException("Esta categoría ya tiene ventas o reservas: no se puede cambiar entre numerada y general");
+    }
+    if (seating === "GENERAL") {
+      if (capacity == null) throw new BadRequestException("Aforo: obligatorio en las entradas generales");
+      await tx
+        .update(schema.seat)
+        .set({ ticketTypeId: null })
+        .where(and(eq(schema.seat.ticketTypeId, ticketTypeId), eq(schema.seat.isGeneral, false)));
+    } else {
+      await tx
+        .delete(schema.seat)
+        .where(and(eq(schema.seat.ticketTypeId, ticketTypeId), eq(schema.seat.isGeneral, true)));
+    }
   }
 
   private async writePricesTx(
@@ -205,6 +253,7 @@ export class TicketTypesService {
       priceCents: priceCents ?? undefined,
       earlyBird,
       capacity: input.int(b.capacity, "Aforo", 0, 100_000),
+      seating: input.oneOf(b.seating, "Tipo de entrada", ["RESERVED", "GENERAL"] as const),
     };
   }
 }

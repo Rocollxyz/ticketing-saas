@@ -215,6 +215,8 @@ export class StorefrontService {
           .select({
             id: schema.ticketType.id,
             name: schema.ticketType.name,
+            // Numerada (se elige en el plano) o general (por cantidad).
+            seating: schema.ticketType.seating,
             description: schema.ticketType.description,
             salesStartAt: schema.ticketType.salesStartAt,
             salesEndAt: schema.ticketType.salesEndAt,
@@ -358,9 +360,8 @@ export class StorefrontService {
     sessionId: string,
   ) {
     return this.withTenant(slug, async () => {
-      const hold = selection.quantities
-        ? await this.reservation.createHoldForQuantities(eventId, selection.quantities, sessionId)
-        : await this.reservation.createHold(eventId, selection.seatIds ?? [], sessionId);
+      // Asientos (categorías numeradas) y/o cantidades (generales) en una sola reserva.
+      const hold = await this.reservation.createHoldMixed(eventId, selection, sessionId);
       // Qué plaza y categoría tocó a cada entrada (en entrada general las elige el
       // servidor): el formulario de asistentes se monta por plaza con esto.
       const seats = await this.db.run((tx) =>

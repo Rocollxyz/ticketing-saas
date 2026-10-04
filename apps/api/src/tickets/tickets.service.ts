@@ -448,16 +448,20 @@ export class TicketsService {
     if (total > MAX_MANUAL) throw new BadRequestException(`Máximo ${MAX_MANUAL} entradas de una vez`);
 
     const actor = `manual:${getStore()!.userId}`;
-    const ev = await this.db.run((tx) => this.loadEventTx(tx, eventId));
-    const { holdId, seatIds } =
-      ev.seatingMode === "GENERAL"
-        ? await this.reservation.createHoldForQuantities(eventId, quantities, actor, "manual")
-        : await this.reservation.createHold(
-            eventId,
-            await this.db.run((tx) => this.pickSeatsTx(tx, eventId, quantities)),
-            actor,
-            "manual",
-          );
+    // Generales: por cantidad. Numeradas: los primeros asientos libres de la categoría.
+    const selection = await this.db.run(async (tx) => {
+      await this.loadEventTx(tx, eventId);
+      const types = await tx
+        .select({ id: schema.ticketType.id, seating: schema.ticketType.seating })
+        .from(schema.ticketType)
+        .where(and(eq(schema.ticketType.eventId, eventId), inArray(schema.ticketType.id, Object.keys(quantities))));
+      const reserved = Object.fromEntries(
+        Object.entries(quantities).filter(([id]) => types.find((t) => t.id === id)?.seating === "RESERVED"),
+      );
+      const general = Object.fromEntries(Object.entries(quantities).filter(([id]) => !(id in reserved)));
+      return { seatIds: await this.pickSeatsTx(tx, eventId, reserved), quantities: general };
+    });
+    const { holdId, seatIds } = await this.reservation.createHoldMixed(eventId, selection, actor, "manual");
 
     const result = await this.db.run(async (tx) => {
       const [o] = await tx
@@ -495,7 +499,7 @@ export class TicketsService {
     return { ...result, emailed: sendEmail };
   }
 
-  /** Numerado: primeros asientos libres de cada categoría (por fila y número). */
+  /** Numeradas: primeros asientos libres de cada categoría (por fila y número). */
   private async pickSeatsTx(tx: Tx, eventId: string, quantities: Record<string, number>) {
     const picked: string[] = [];
     for (const [ticketTypeId, n] of Object.entries(quantities)) {
@@ -506,6 +510,7 @@ export class TicketsService {
           and(
             eq(schema.seat.eventId, eventId),
             eq(schema.seat.ticketTypeId, ticketTypeId),
+            eq(schema.seat.isGeneral, false),
             sql`not ${seatTaken(schema.seat.id)}`,
           ),
         )

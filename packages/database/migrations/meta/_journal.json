@@ -120,6 +120,13 @@
       "when": 1791112748801,
       "tag": "0016_shop_theme",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1791121203933,
+      "tag": "0017_mixed_seating",
+      "breakpoints": true
     }
   ]
 }

@@ -56,6 +56,8 @@ export interface EventData {
 export interface TicketTypeData {
   id: string;
   name: string;
+  /** Numerada (asiento en el plano) o general (aforo). Se pueden mezclar en un evento. */
+  seating: SeatingMode;
   description: string | null;
   priceCents: number | null;
   earlyBird: { priceCents: number; until: string } | null;
@@ -74,6 +76,8 @@ export interface TicketTypeData {
 
 export interface EventDetail {
   event: EventData;
+  /** Mezcla categorías numeradas y generales. */
+  mixed: boolean;
   taxName: "IVA" | "IGIC";
   venue: Venue | null;
   ticketTypes: TicketTypeData[];
@@ -86,6 +90,7 @@ export type StatusAction = "publish" | "unpublish" | "close" | "reopen" | "cance
 /** Campos editables del tipo de entrada (lo que envía el formulario). */
 export interface TicketTypeInput {
   name?: string;
+  seating?: SeatingMode;
   description?: string | null;
   priceCents?: number;
   earlyBird?: { priceCents: number; until: string } | null;

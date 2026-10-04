@@ -112,7 +112,7 @@ export default function EventDetailsForm({
         endsAt: fromLocalInput(f.endsAt, tz),
         doorsAt: fromLocalInput(f.doorsAt, tz),
         visibility: f.visibility,
-        seatingMode: f.seatingMode,
+        ...(detail.mixed ? {} : { seatingMode: f.seatingMode }),
         salesStartAt: fromLocalInput(f.salesStartAt, tz),
         salesEndAt: fromLocalInput(f.salesEndAt, tz),
         maxPerOrder: Number(f.maxPerOrder),
@@ -266,6 +266,15 @@ export default function EventDetailsForm({
 
         <section className="card stack">
           <h3 className="section-title">Venta</h3>
+          {detail.mixed ? (
+            <div className="field">
+              Tipo de aforo
+              <div className="notice ok" style={{ margin: 0 }}>
+                <strong>Mixto:</strong> este evento vende entradas con asiento (plano) y sin asiento (aforo). Se
+                configura en cada tipo de entrada, pestaña «Entradas».
+              </div>
+            </div>
+          ) : (
           <div className="field">
             Tipo de aforo
             <div className="grid2">
@@ -287,9 +296,10 @@ export default function EventDetailsForm({
             <span className="hint">
               {hasSales
                 ? "Ya hay ventas: el tipo de aforo no se puede cambiar."
-                : "Cambiarlo borra el plano o el aforo actual."}
+                : "Cambiarlo borra el plano o el aforo actual. Para mezclar (p. ej. platea numerada + pista), elige el tipo en cada entrada."}
             </span>
           </div>
+          )}
           <div className="field">
             Visibilidad
             <div className="row">

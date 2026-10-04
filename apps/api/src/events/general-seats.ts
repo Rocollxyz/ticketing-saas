@@ -91,3 +91,23 @@ export async function syncGeneralSeats(
     }
   }
 }
+
+/**
+ * Resumen del modo del evento a partir de sus categorías: RESERVED si alguna es
+ * numerada (hay plano), GENERAL si todas son de aforo. Sin categorías no se toca (vale
+ * como «modo por defecto» de las que se creen).
+ */
+export async function syncEventSeatingTx(tx: Tx, eventId: string) {
+  const [r] = await tx
+    .select({
+      total: sql<number>`count(*)`.mapWith(Number),
+      reserved: sql<number>`count(*) filter (where ${schema.ticketType.seating} = 'RESERVED')`.mapWith(Number),
+    })
+    .from(schema.ticketType)
+    .where(eq(schema.ticketType.eventId, eventId));
+  if (!r.total) return;
+  await tx
+    .update(schema.event)
+    .set({ seatingMode: r.reserved > 0 ? "RESERVED" : "GENERAL" })
+    .where(eq(schema.event.id, eventId));
+}

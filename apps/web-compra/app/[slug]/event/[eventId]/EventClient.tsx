@@ -79,10 +79,16 @@ export default function EventClient({
   const router = useRouter();
   const [detail, setDetail] = useState(initial);
   const { event: ev, venue, sales } = detail;
-  const general = ev.seatingMode === "GENERAL";
+  // Un evento puede mezclar categorías NUMERADAS (asiento en el plano) y GENERALES (por
+  // cantidad), p. ej. platea + pista. (`seating` falta en APIs antiguas: manda el evento.)
+  const seatingOf = (t: ShopTicketType) => t.seating ?? ev.seatingMode;
+  const generalTypes = detail.ticketTypes.filter((t) => seatingOf(t) === "GENERAL");
+  const hasGeneral = generalTypes.length > 0;
+  const hasMap = detail.seats.length > 0;
+  const mixed = hasGeneral && hasMap;
 
   const [selected, setSelected] = useState<Set<string>>(new Set()); // numerado: asientos
-  const [qty, setQty] = useState<Record<string, number>>({}); // general: cantidades
+  const [qty, setQty] = useState<Record<string, number>>({}); // generales: cantidades
   const [checkout, setCheckout] = useState<CheckoutData | null>(null);
   const [hold, setHold] = useState<ActiveHold | null>(null);
   // Plazas reservadas pendientes de rellenar el formulario de asistentes.
@@ -145,12 +151,12 @@ export default function EventClient({
 
     socket.on(SEATS_HELD, ({ seatIds, actor }: HeldPayload) => {
       if (actor === sessionId.current) return; // es nuestra propia reserva
-      if (general) return refresh();
+      if (hasGeneral) refresh();
       setUnavailable((prev) => new Set([...prev, ...seatIds]));
       drop(seatIds);
     });
     socket.on(SEATS_RELEASED, ({ seatIds }: SeatIdsPayload) => {
-      if (general) return refresh();
+      if (hasGeneral) refresh();
       setUnavailable((prev) => {
         const next = new Set(prev);
         seatIds.forEach((id) => next.delete(id));
@@ -164,7 +170,7 @@ export default function EventClient({
       });
     });
     socket.on(SEATS_SOLD, ({ seatIds }: SeatIdsPayload) => {
-      if (general) return refresh();
+      if (hasGeneral) refresh();
       setUnavailable((prev) => new Set([...prev, ...seatIds]));
       setSold((prev) => new Set([...prev, ...seatIds]));
       drop(seatIds);
@@ -172,24 +178,23 @@ export default function EventClient({
     return () => {
       socket.disconnect();
     };
-  }, [ev.id, general, refresh]);
+  }, [ev.id, hasGeneral, refresh]);
 
   const typeById = useMemo(() => new Map(detail.ticketTypes.map((t) => [t.id, t])), [detail.ticketTypes]);
 
-  const count = general ? Object.values(qty).reduce((a, b) => a + b, 0) : selected.size;
-  const total = general
-    ? Object.entries(qty).reduce((acc, [id, n]) => acc + n * (typeById.get(id)?.precioCents ?? 0), 0)
-    : detail.seats.filter((s) => selected.has(s.id)).reduce((acc, s) => acc + (s.precioCents ?? 0), 0);
+  const count = selected.size + Object.values(qty).reduce((a, b) => a + b, 0);
+  const total =
+    Object.entries(qty).reduce((acc, [id, n]) => acc + n * (typeById.get(id)?.precioCents ?? 0), 0) +
+    detail.seats.filter((s) => selected.has(s.id)).reduce((acc, s) => acc + (s.precioCents ?? 0), 0);
 
   // Reglas del pedido (la API las vuelve a comprobar).
   const ruleError = useMemo(() => {
     if (count > ev.maxPerOrder) return `Máximo ${ev.maxPerOrder} entradas por pedido`;
     const perType = new Map<string, number>();
-    if (general) Object.entries(qty).forEach(([id, n]) => n && perType.set(id, n));
-    else
-      detail.seats
-        .filter((s) => selected.has(s.id) && s.ticketTypeId)
-        .forEach((s) => perType.set(s.ticketTypeId!, (perType.get(s.ticketTypeId!) ?? 0) + 1));
+    Object.entries(qty).forEach(([id, n]) => n && perType.set(id, n));
+    detail.seats
+      .filter((s) => selected.has(s.id) && s.ticketTypeId)
+      .forEach((s) => perType.set(s.ticketTypeId!, (perType.get(s.ticketTypeId!) ?? 0) + 1));
     for (const [id, n] of perType) {
       const t = typeById.get(id);
       if (!t) continue;
@@ -197,13 +202,18 @@ export default function EventClient({
       if (t.maxPerOrder != null && n > t.maxPerOrder) return `${t.name}: máximo ${t.maxPerOrder} por pedido`;
     }
     return null;
-  }, [count, ev.maxPerOrder, general, qty, selected, detail.seats, typeById]);
+  }, [count, ev.maxPerOrder, qty, selected, detail.seats, typeById]);
 
   const payable = coupon ? coupon.totalCents : total;
 
   /** Lo elegido, en el formato de la API (reserva y presupuesto con código). */
-  const selection = () =>
-    general ? { quantities: Object.fromEntries(Object.entries(qty).filter(([, n]) => n > 0)) } : { seatIds: [...selected] };
+  const selection = () => {
+    const quantities = Object.fromEntries(Object.entries(qty).filter(([, n]) => n > 0));
+    return {
+      ...(selected.size ? { seatIds: [...selected] } : {}),
+      ...(Object.keys(quantities).length ? { quantities } : {}),
+    };
+  };
 
   /** Pide el total con el código; devuelve el mensaje de error o null si se aplicó. */
   async function applyCoupon(code: string): Promise<string | null> {
@@ -267,7 +277,7 @@ export default function EventClient({
       });
       if (!holdRes.ok) {
         const body = await holdRes.json().catch(() => null);
-        if (general) refresh();
+        if (hasGeneral) refresh();
         throw new Error(body?.message ?? "Alguna entrada ya no está disponible");
       }
       const h = await holdRes.json();
@@ -367,7 +377,7 @@ export default function EventClient({
     setHeldSeats(null);
     setCheckout(null);
     setLoading(false);
-    if (general) refresh();
+    if (hasGeneral) refresh();
   }
 
   /** Se acabó el tiempo: fuera el pago; el servidor libera las plazas. */
@@ -376,8 +386,8 @@ export default function EventClient({
     setHeldSeats(null);
     setCheckout(null);
     setExpired(true);
-    if (general) setTimeout(refresh, 25_000); // tras el barrido del servidor
-  }, [general, refresh]);
+    if (hasGeneral) setTimeout(refresh, 25_000); // tras el barrido del servidor
+  }, [hasGeneral, refresh]);
 
   const stripePromise = useMemo(() => (checkout ? loadStripe(checkout.publishableKey) : null), [checkout]);
 
@@ -387,7 +397,7 @@ export default function EventClient({
     detail.organizer?.accentColor ? { "--accent": accent, "--accent-ink": inkFor(accent) } : {}
   ) as React.CSSProperties;
   const theme = themeOf(detail.organizer);
-  const showMap = !general && sales.open;
+  const showMap = hasMap && sales.open;
   const fromCents = Math.min(...detail.ticketTypes.map((t) => t.precioCents ?? Infinity));
 
   // Paso de la caja de compra: ① entradas → ② tus datos. Con reserva activa manda el
@@ -462,9 +472,16 @@ export default function EventClient({
             <span>›</span>
             <span>2 · Tus datos</span>
           </div>
-          {general ? (
-            <div style={{ display: "grid", gap: 10 }}>
-              {detail.ticketTypes.map((t) => (
+          {hasMap && (
+            <div style={{ display: "grid", gap: 6 }}>
+              {mixed && <strong style={{ fontSize: 14 }}>Asientos numerados</strong>}
+              <SelectedSeats detail={detail} selected={selected} onRemove={(id) => toggle(id, true)} />
+            </div>
+          )}
+          {hasGeneral && (
+            <div style={{ display: "grid" }}>
+              {mixed && <strong style={{ fontSize: 14, marginTop: 6 }}>Sin asiento</strong>}
+              {generalTypes.map((t) => (
                 <QuantityRow
                   key={t.id}
                   t={t}
@@ -475,14 +492,12 @@ export default function EventClient({
                 />
               ))}
             </div>
-          ) : (
-            <SelectedSeats detail={detail} selected={selected} onRemove={(id) => toggle(id, true)} />
           )}
           {ruleError && <div className="notice warn">{ruleError}</div>}
           {error && <div className="notice error">{error}</div>}
           <TotalRow count={count} total={total} payable={payable} coupon={coupon} />
           <button className="btn-primary" disabled={!canContinue} onClick={() => setStep("details")}>
-            {count === 0 ? (general ? "Elige tus entradas" : "Elige tus asientos") : "Continuar"}
+            {count === 0 ? (hasMap && !hasGeneral ? "Elige tus asientos" : "Elige tus entradas") : "Continuar"}
           </button>
         </>
       ) : (
@@ -1095,7 +1110,7 @@ function SeatMap({
   return (
     <div>
       <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 13, ...muted, marginBottom: 12 }}>
-        {detail.ticketTypes.map((t) => (
+        {detail.ticketTypes.filter((t) => (t.seating ?? "RESERVED") === "RESERVED").map((t) => (
           <span key={t.id}>
             <strong style={{ color: "var(--text)" }}>{t.name}</strong> {euros(t.precioCents)}
             {t.regularCents != null && ` (anticipada, luego ${euros(t.regularCents)})`}

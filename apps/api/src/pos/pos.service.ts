@@ -94,6 +94,7 @@ export class PosService {
         .select({
           id: schema.ticketType.id,
           name: schema.ticketType.name,
+          seating: schema.ticketType.seating,
           precioCents: currentPriceCents(schema.ticketType.id),
         })
         .from(schema.ticketType)
@@ -155,9 +156,7 @@ export class PosService {
     const actor = `pos:${getStore()!.userId}`;
 
     // 1) Reserva (misma garantía anti-sobreventa; emite seats.held en tiempo real).
-    const { holdId, seatIds } = selection.quantities
-      ? await this.reservation.createHoldForQuantities(eventId, selection.quantities, actor, "pos")
-      : await this.reservation.createHold(eventId, selection.seatIds ?? [], actor, "pos");
+    const { holdId, seatIds } = await this.reservation.createHoldMixed(eventId, selection, actor, "pos");
 
     // 2) Precio real desde la BD y datos de los asistentes (validados como online). Si algo
     //    falla, se suelta la reserva: en taquilla no hay contador de tiempo que la libere pronto.

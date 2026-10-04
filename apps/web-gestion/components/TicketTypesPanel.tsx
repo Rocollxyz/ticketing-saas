@@ -34,7 +34,8 @@ export default function TicketTypesPanel({
   const [editing, setEditing] = useState<TicketTypeData | "new" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { event: ev } = detail;
-  const general = ev.seatingMode === "GENERAL";
+  // Modo por defecto de las categorías nuevas (cada una puede elegir el suyo).
+  const defaultGeneral = ev.seatingMode === "GENERAL";
   const tz = ev.timezone;
 
   async function remove(t: TicketTypeData) {
@@ -52,9 +53,8 @@ export default function TicketTypesPanel({
     <div className="stack">
       <div className="row">
         <p className="muted" style={{ margin: 0, fontSize: 14, flex: 1 }}>
-          {general
-            ? "Cada tipo de entrada tiene su precio y su aforo."
-            : "Crea los tipos de entrada y asígnalos a los asientos en la pestaña «Plano»."}
+          Cada tipo de entrada puede ser <strong>con asiento</strong> (se asigna a butacas en la pestaña «Plano») o{" "}
+          <strong>sin asiento</strong> (por aforo). Puedes mezclarlos: p. ej. platea numerada + pista de pie.
         </p>
         {!disabled && editing === null && (
           <button className="btn primary" onClick={() => setEditing("new")}>
@@ -66,7 +66,7 @@ export default function TicketTypesPanel({
 
       {editing === "new" && (
         <TicketTypeForm
-          general={general}
+          defaultGeneral={defaultGeneral}
           tz={tz}
           nextOrder={detail.ticketTypes.length + 1}
           onCancel={() => setEditing(null)}
@@ -86,7 +86,7 @@ export default function TicketTypesPanel({
         editing !== null && editing !== "new" && editing.id === t.id ? (
           <TicketTypeForm
             key={t.id}
-            general={general}
+            defaultGeneral={defaultGeneral}
             tz={tz}
             initial={t}
             onCancel={() => setEditing(null)}
@@ -114,7 +114,8 @@ export default function TicketTypesPanel({
                   (t.taxRateBp === 0
                     ? "Exenta · "
                     : `${detail.taxName} ${(t.taxRateBp / 100).toLocaleString("es-ES")} % incl. · `)}
-                {t.sold} vendidas de {t.capacity} {general ? "(aforo)" : "asientos"}
+                {t.seating === "GENERAL" ? "Sin asiento · " : "Con asiento · "}
+                {t.sold} vendidas de {t.capacity} {t.seating === "GENERAL" ? "(aforo)" : "asientos en el plano"}
                 {" · "}
                 {t.minPerOrder > 1 && `mín. ${t.minPerOrder} · `}
                 {t.maxPerOrder != null ? `máx. ${t.maxPerOrder} por pedido` : "sin máximo propio"}
@@ -150,14 +151,14 @@ const TAX_OPTIONS = [
 ];
 
 function TicketTypeForm({
-  general,
+  defaultGeneral,
   tz,
   initial,
   nextOrder,
   onSubmit,
   onCancel,
 }: {
-  general: boolean;
+  defaultGeneral: boolean;
   tz: string;
   initial?: TicketTypeData;
   nextOrder?: number;
@@ -165,6 +166,8 @@ function TicketTypeForm({
   onCancel: () => void;
 }) {
   const [name, setName] = useState(initial?.name ?? "");
+  const [general, setGeneral] = useState(initial ? initial.seating === "GENERAL" : defaultGeneral);
+  const locked = !!initial && initial.sold > 0; // con ventas no se cambia el modo
   const [description, setDescription] = useState(initial?.description ?? "");
   const [free, setFree] = useState(initial?.priceCents === 0);
   const [price, setPrice] = useState(centsToInput(initial?.priceCents));
@@ -205,6 +208,7 @@ function TicketTypeForm({
         description: description || null,
         priceCents,
         earlyBird,
+        seating: general ? "GENERAL" : "RESERVED",
         ...(general ? { capacity: Number(capacity) } : {}),
         salesStartAt: fromLocalInput(salesStart, tz),
         salesEndAt: fromLocalInput(salesEnd, tz),
@@ -223,6 +227,20 @@ function TicketTypeForm({
   return (
     <form onSubmit={submit} className="card stack" style={{ borderColor: "var(--accent)" }}>
       <h3 className="section-title">{initial ? `Editar «${initial.name}»` : "Nuevo tipo de entrada"}</h3>
+      <div className="field">
+        Cómo se vende
+        <div className="row" style={{ gap: 16 }}>
+          <label className="check">
+            <input type="radio" checked={!general} disabled={locked} onChange={() => setGeneral(false)} /> Con asiento
+            (butaca en el plano)
+          </label>
+          <label className="check">
+            <input type="radio" checked={general} disabled={locked} onChange={() => setGeneral(true)} /> Sin asiento
+            (por aforo: pista, de pie…)
+          </label>
+        </div>
+        {locked && <span className="hint">Ya tiene ventas: no se puede cambiar.</span>}
+      </div>
       <div className="grid2">
         <label className="field">
           Nombre

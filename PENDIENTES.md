@@ -48,6 +48,15 @@ descargar entradas) · calendario/listado incrustable en otras webs · salida y 
 prefijo de número de entrada · Stripe Connect / planes y comisiones para promotores ·
 directorio de promotores en la portada `/` (hoy es una demo fija).
 
+### Eventos mixtos (2026-10-04)
+- ✅ Un mismo evento vende entradas **con asiento** (plano) y **sin asiento** (aforo), p. ej.
+  platea numerada + pista. El modo es de cada tipo de entrada (`ticket_type.seating`,
+  migración 0017); `event.seating_mode` es un resumen derivado. Una sola reserva/pedido/factura
+  mezcla asientos y cantidades (`createHoldMixed`). Tienda, taquilla, invitaciones, consola y
+  duplicar evento adaptados.
+- **Para Raquel (fase 2)**: dibujar la pista/zonas de pie en el plano sobre esto (hoy la pista
+  se compra con un selector de cantidad en la caja de compra, no en el plano).
+
 ### Presentación y experiencia del comprador (análisis 2026-10-04)
 - ✅ **Ficha de evento estilo Ticketmaster**: cabecera con cartel sin recortar, información en
   el centro y compra en una caja fija a la derecha por pasos (entradas → datos → pago); en
@@ -143,7 +152,7 @@ directorio de promotores en la portada `/` (hoy es una demo fija).
 ## Coordinación entre líneas
 - `main` nunca recibe trabajo a medias de Darrian/Raquel; se integrarán cuando estén
   maduras (decisión aparte).
-- La BD es compartida y ya tiene la migración **0016** (tema de la tienda; 0015 RGPD; 0014 facturación, 0013
+- La BD es compartida y ya tiene la migración **0017** (eventos mixtos; 0016 tema de la tienda; 0015 RGPD; 0014 facturación, 0013
   reembolsos, 0012 cupones, 0011 datos de asistentes). Las claves de QR están cifradas:
   las ventanas de Darrian/Raquel necesitan la misma `MASTER_KEY` en su `.env`. Para que
   Darrian/Raquel tengan el código al día: en su ventana, «trae los cambios de main»
