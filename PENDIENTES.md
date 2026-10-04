@@ -34,9 +34,9 @@ npm run dev                   # API :3000 + webs :3001 compra, :3002 gestión, :
 |---|---|---|
 | 1 | Datos de asistentes + campos personalizados | ✅ Hecho (commit `700bf9c`) |
 | 2 | Gestión de entradas en la consola (pestaña «Asistentes»): listar, buscar, editar asistente, reenviar, anular (liberando la plaza), invitaciones, exportar CSV | ✅ Hecho |
-| 3 | **Emails reales** (Resend/Brevo/SES) | ⏭️ Siguiente — bloqueado: falta que el usuario elija servicio y dé la clave |
-| 4 | **Cupones / códigos de descuento** | Pendiente |
-| 5 | **Reembolsos y cancelaciones**: devolver el dinero al anular (hoy anular ya libera la plaza pero no reembolsa) + reembolso automático de `order.refund_required` | Pendiente |
+| 3 | **Emails reales** | Más adelante: **servicio propio en el servidor** (decidido 2026-10-04; nada de Resend/Brevo/SES). Se hará con el paso a producción |
+| 4 | Cupones / códigos de descuento (pestaña «Descuentos»; % o € por entrada, por evento/categorías o para todos los eventos, usos máximos y fechas) | ✅ Hecho |
+| 5 | ⏭️ **Siguiente** — **Reembolsos y cancelaciones**: devolver el dinero al anular (hoy anular ya libera la plaza pero no reembolsa) + reembolso automático de `order.refund_required` | Pendiente |
 | 6 | **Redsys + Bizum** (pasarela española) | Pendiente |
 | 7 | **IVA y facturas** | Pendiente |
 
@@ -67,6 +67,8 @@ directorio de promotores en la portada `/` (hoy es una demo fija).
   (cifrado en reposo, rotación, clave por dispositivo).
 - 🟡 **C2**: validación de entrada en el resto de la API (la gestión de eventos ya valida).
 - 🟢 **D5**: health check que compruebe Postgres y Redis.
+- 🟠 **Límite de peticiones** (no hay ninguno en la API): sobre todo en el login y en
+  `shop/:slug/coupons/quote`, que permitiría probar códigos de descuento a fuerza bruta.
 
 ### Paso a producción (sin decidir)
 - Sistema propio de despliegue: hosting, dominios, CI/CD, secretos, copias de seguridad
@@ -97,6 +99,7 @@ directorio de promotores en la portada `/` (hoy es una demo fija).
 ## Coordinación entre líneas
 - `main` nunca recibe trabajo a medias de Darrian/Raquel; se integrarán cuando estén
   maduras (decisión aparte).
-- La BD es compartida y ya tiene la migración **0011** (datos de asistentes). Para que
+- La BD es compartida y ya tiene la migración **0012** (cupones; la 0011 son los datos de
+  asistentes). Para que
   Darrian/Raquel tengan el código al día: en su ventana, «trae los cambios de main»
   (`git merge main`).

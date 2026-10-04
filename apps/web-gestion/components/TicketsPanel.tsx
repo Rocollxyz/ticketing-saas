@@ -245,7 +245,10 @@ function TicketRows({
           {t.buyerName ?? t.buyerEmail ?? <span className="faint">—</span>}
           {t.buyerName && t.buyerEmail && <div className="faint">{t.buyerEmail}</div>}
         </td>
-        <td>{CHANNEL_LABEL[t.channel]}</td>
+        <td>
+          {CHANNEL_LABEL[t.channel]}
+          {t.couponCode && <div className="faint">{t.couponCode}</div>}
+        </td>
         <td>
           <span className={`badge ${t.status}`}>{STATUS_LABEL[t.status]}</span>
         </td>

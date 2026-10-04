@@ -68,6 +68,9 @@ export interface AttendeeAnswer {
   preset?: string;
 }
 
+// Cupones: PERCENT = % sobre el precio de cada entrada; AMOUNT = céntimos menos por entrada.
+export const couponKind = pgEnum("coupon_kind", ["PERCENT", "AMOUNT"]);
+
 export const holdStatus = pgEnum("hold_status", [
   "ACTIVE",
   "CONFIRMED",

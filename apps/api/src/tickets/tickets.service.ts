@@ -10,7 +10,7 @@ import { type AttendeeAnswer, schema } from "@ticketing/database";
 import { and, asc, desc, eq, type SQL, sql } from "drizzle-orm";
 import { attendeeNameOf, type FieldDef, fieldsFor, validateAttendees } from "../catalog/attendee";
 import { formatInZone } from "../catalog/format";
-import { seatTaken } from "../catalog/pricing";
+import { qualified, seatTaken } from "../catalog/pricing";
 import { seatLabel } from "../catalog/seat-label";
 import * as input from "../common/input";
 import { getStore } from "../database/tenant-context";
@@ -36,13 +36,13 @@ const channelSql = sql<Channel>`(
     when p.provider_ref = ${INVITATION_REF} then 'invitacion'
     when p.provider in ('cash','tpv') then 'taquilla'
     else 'online' end
-  from payment p where p.order_id = ${schema.ticket.orderId} order by p.created_at limit 1
+  from payment p where p.order_id = ${qualified(schema.ticket.orderId)} order by p.created_at limit 1
 )`;
 const channelOf = (c: Channel | null): Channel => c ?? "online";
 
 /** Primera validación correcta en el acceso. */
 const checkedInAtSql = sql<Date | null>`(
-  select min(c.scanned_at) from check_in c where c.ticket_id = ${schema.ticket.id} and c.result = 'OK'
+  select min(c.scanned_at) from check_in c where c.ticket_id = ${qualified(schema.ticket.id)} and c.result = 'OK'
 )`.mapWith((v: string | null) => (v ? new Date(v) : null));
 
 /**
@@ -129,6 +129,7 @@ export class TicketsService {
         categoria: schema.ticketType.name,
         channel: channelSql,
         checkedInAt: checkedInAtSql,
+        couponCode: sql<string | null>`(select c.code from coupon c where c.id = ${qualified(schema.order.couponId)})`,
       })
       .from(schema.ticket)
       .innerJoin(schema.order, eq(schema.order.id, schema.ticket.orderId))
@@ -398,6 +399,7 @@ export class TicketsService {
         "Email comprador",
         "Pedido",
         "Canal",
+        "Código descuento",
         "Emitida",
         "Validada",
         ...cols.map((c) => c.label),
@@ -414,6 +416,7 @@ export class TicketsService {
           r.buyerEmail ?? "",
           r.orderId,
           CHANNEL_LABEL[r.channel],
+          r.couponCode ?? "",
           when(r.createdAt),
           when(r.checkedInAt),
           ...cols.map((c) => byField.get(c.id) ?? ""),

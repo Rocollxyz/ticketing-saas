@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { bigint, foreignKey, index, integer, jsonb, pgTable, text, timestamp, unique, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { type AttendeeAnswer, holdStatus, orderStatus, paymentProvider, paymentStatus, pk, tenantId, ticketStatus, timestamps } from "./_shared";
-import { event, seat } from "./catalog";
+import { coupon, event, seat } from "./catalog";
 import { tenant } from "./tenancy";
 
 /**
@@ -18,10 +18,17 @@ export const order = pgTable(
     status: orderStatus("status").notNull().default("PENDING"),
     buyerEmail: text("buyer_email"),
     buyerName: text("buyer_name"),
+    couponId: uuid("coupon_id"),
+    discountCents: bigint("discount_cents", { mode: "bigint" }).notNull().default(sql`0`),
     ...timestamps,
   },
   (t) => [
     unique("order_tenant_id_uq").on(t.tenantId, t.id),
+    foreignKey({
+      columns: [t.tenantId, t.couponId],
+      foreignColumns: [coupon.tenantId, coupon.id],
+      name: "order_coupon_fk",
+    }),
     foreignKey({
       columns: [t.tenantId, t.eventId],
       foreignColumns: [event.tenantId, event.id],

@@ -82,6 +82,8 @@ export const fieldsFor = (fields: AttendeeFieldPublic[], ticketTypeId: string | 
 
 export interface EventDetail {
   attendeeFields: AttendeeFieldPublic[];
+  /** Hay códigos de descuento activos: se muestra la casilla para escribirlo. */
+  couponsAvailable?: boolean;
   organizer: { name: string; slug: string; logoUrl: string | null; accentColor: string | null } | null;
   event: {
     id: string;

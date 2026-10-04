@@ -1,5 +1,5 @@
 import { bigint, boolean, foreignKey, integer, jsonb, pgTable, text, timestamp, unique, uniqueIndex, uuid } from "drizzle-orm/pg-core";
-import { attendeeFieldType, eventStatus, eventVisibility, pk, seatingMode, softDelete, tenantId, timestamps } from "./_shared";
+import { attendeeFieldType, couponKind, eventStatus, eventVisibility, pk, seatingMode, softDelete, tenantId, timestamps } from "./_shared";
 import { tenant } from "./tenancy";
 
 /**
@@ -143,6 +143,39 @@ export const attendeeField = pgTable(
       columns: [t.tenantId, t.eventId],
       foreignColumns: [event.tenantId, event.id],
       name: "attendee_field_event_fk",
+    }),
+  ],
+);
+
+/**
+ * Código de descuento del promotor. `eventId` null = vale para todos sus eventos. El
+ * descuento se aplica a CADA entrada elegible del pedido (nunca por debajo de 0). Los
+ * usos se cuentan por pedidos no cancelados (ver CouponsService).
+ */
+export const coupon = pgTable(
+  "coupon",
+  {
+    id: pk(),
+    tenantId: tenantId().references(() => tenant.id, { onDelete: "restrict" }),
+    eventId: uuid("event_id"),
+    code: text("code").notNull(), // siempre en MAYÚSCULAS
+    kind: couponKind("kind").notNull(),
+    value: integer("value").notNull(), // % (1-100) o céntimos
+    // null = todas las categorías (solo tiene sentido con eventId).
+    ticketTypeIds: jsonb("ticket_type_ids").$type<string[]>(),
+    maxUses: integer("max_uses"), // null = ilimitado
+    validFrom: timestamp("valid_from", { withTimezone: true }),
+    validTo: timestamp("valid_to", { withTimezone: true }),
+    active: boolean("active").notNull().default(true),
+    ...timestamps,
+  },
+  (t) => [
+    unique("coupon_tenant_id_uq").on(t.tenantId, t.id),
+    unique("coupon_code_uq").on(t.tenantId, t.code),
+    foreignKey({
+      columns: [t.tenantId, t.eventId],
+      foreignColumns: [event.tenantId, event.id],
+      name: "coupon_event_fk",
     }),
   ],
 );

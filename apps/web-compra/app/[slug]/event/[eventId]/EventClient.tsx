@@ -16,6 +16,7 @@ import {
   type ShopTicketType,
 } from "../../../../lib/api";
 import AttendeesForm from "./AttendeesForm";
+import CouponBox, { type AppliedCoupon } from "./CouponBox";
 import { inputStyle } from "./styles";
 import {
   connectToEvent,
@@ -27,6 +28,8 @@ import {
 } from "../../../../lib/realtime";
 
 interface CheckoutData {
+  /** Importe a cobrar ya con el descuento (lo calcula la API). */
+  amountCents: number;
   clientSecret: string;
   publishableKey: string;
 }
@@ -59,6 +62,7 @@ export default function EventClient({ slug, detail: initial }: { slug: string; d
   const [error, setError] = useState<string | null>(null);
   const [live, setLive] = useState(false);
   const [email, setEmail] = useState("");
+  const [coupon, setCoupon] = useState<AppliedCoupon | null>(null);
   const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 
   // sessionId estable de esta pestaña: lo enviamos al reservar para que el servidor
@@ -157,6 +161,40 @@ export default function EventClient({ slug, detail: initial }: { slug: string; d
     return null;
   }, [count, ev.maxPerOrder, general, qty, selected, detail.seats, typeById]);
 
+  const payable = coupon ? coupon.totalCents : total;
+
+  /** Lo elegido, en el formato de la API (reserva y presupuesto con código). */
+  const selection = () =>
+    general ? { quantities: Object.fromEntries(Object.entries(qty).filter(([, n]) => n > 0)) } : { seatIds: [...selected] };
+
+  /** Pide el total con el código; devuelve el mensaje de error o null si se aplicó. */
+  async function applyCoupon(code: string): Promise<string | null> {
+    const r = await fetch(`${API_URL}/shop/${slug}/coupons/quote`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ eventId: ev.id, code, ...selection() }),
+    }).catch(() => null);
+    const body = await r?.json().catch(() => null);
+    if (!r?.ok) {
+      setCoupon(null);
+      return body?.message ?? "No se pudo comprobar el código";
+    }
+    setCoupon({ code: body.code, discountCents: body.discountCents, totalCents: body.totalCents });
+    return null;
+  }
+
+  // Si cambia la selección con un código aplicado, se recalcula (puede dejar de valer).
+  const couponCode = coupon?.code;
+  useEffect(() => {
+    if (!couponCode) return;
+    if (count === 0) {
+      setCoupon(null);
+      return;
+    }
+    void applyCoupon(couponCode).then((err) => err && setError(err));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [couponCode, count, total]);
+
   const canBuy = sales.open && count > 0 && emailOk && !!buyerName.trim() && !ruleError && !loading;
 
   function toggle(seatId: string, isAvailable: boolean) {
@@ -182,13 +220,7 @@ export default function EventClient({ slug, detail: initial }: { slug: string; d
       const holdRes = await fetch(`${API_URL}/shop/${slug}/holds`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          eventId: ev.id,
-          sessionId: sessionId.current,
-          ...(general
-            ? { quantities: Object.fromEntries(Object.entries(qty).filter(([, n]) => n > 0)) }
-            : { seatIds: [...selected] }),
-        }),
+        body: JSON.stringify({ eventId: ev.id, sessionId: sessionId.current, ...selection() }),
       });
       if (!holdRes.ok) {
         const body = await holdRes.json().catch(() => null);
@@ -231,6 +263,7 @@ export default function EventClient({ slug, detail: initial }: { slug: string; d
         buyerEmail: email.trim(),
         buyerName: buyerName.trim() || undefined,
         attendees,
+        couponCode: coupon?.code,
       }),
     });
     if (!coRes.ok) {
@@ -245,7 +278,11 @@ export default function EventClient({ slug, detail: initial }: { slug: string; d
     }
     setHeldSeats(null);
     setHold(held);
-    setCheckout({ clientSecret: co.clientSecret, publishableKey: co.publishableKey });
+    setCheckout({
+      amountCents: Number(co.amountCents),
+      clientSecret: co.clientSecret,
+      publishableKey: co.publishableKey,
+    });
   }
 
   async function submitAttendees(attendees: { seatId: string; values: Record<string, unknown> }[]) {
@@ -454,10 +491,17 @@ export default function EventClient({ slug, detail: initial }: { slug: string; d
               }}
             />
           </label>
+          {detail.couponsAvailable && (
+            <CouponBox applied={coupon} disabled={count === 0} onApply={applyCoupon} onRemove={() => setCoupon(null)} />
+          )}
           {ruleError && <p style={{ color: "#e0a23c", fontSize: 14 }}>{ruleError}</p>}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <strong>
-              Total: {count === 0 ? "—" : euros(total)}
+              Total:{" "}
+              {coupon && count > 0 && (
+                <s style={{ ...muted, fontWeight: 400 }}>{euros(total)}</s>
+              )}{" "}
+              {count === 0 ? "—" : euros(payable)}
               {count > 0 && <span style={{ ...muted, fontWeight: 400 }}> · {count} entrada(s)</span>}
             </strong>
             <button
@@ -473,7 +517,7 @@ export default function EventClient({ slug, detail: initial }: { slug: string; d
                 cursor: canBuy ? "pointer" : "not-allowed",
               }}
             >
-              {loading ? "Procesando…" : total === 0 && count > 0 ? "Reservar gratis" : "Comprar"}
+              {loading ? "Procesando…" : payable === 0 && count > 0 ? "Reservar gratis" : "Comprar"}
             </button>
           </div>
         </>
@@ -510,7 +554,7 @@ export default function EventClient({ slug, detail: initial }: { slug: string; d
 
       {checkout && hold && stripePromise && (
         <Elements stripe={stripePromise} options={{ clientSecret: checkout.clientSecret }}>
-          <PaymentForm slug={slug} eventId={ev.id} total={total} email={email.trim()} deadline={hold.deadline} />
+          <PaymentForm slug={slug} eventId={ev.id} total={checkout.amountCents} email={email.trim()} deadline={hold.deadline} />
         </Elements>
       )}
 

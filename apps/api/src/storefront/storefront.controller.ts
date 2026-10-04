@@ -61,11 +61,22 @@ export class StorefrontController {
   @Post("checkout")
   checkout(
     @Param("slug") slug: string,
-    @Body() body: { holdId: string; buyerEmail?: string; buyerName?: unknown; attendees?: unknown },
+    @Body()
+    body: { holdId: string; buyerEmail?: string; buyerName?: unknown; attendees?: unknown; couponCode?: unknown },
   ) {
     return this.shop.createCheckout(slug, body.holdId, body.buyerEmail, {
       name: body.buyerName,
       attendees: body.attendees,
+      couponCode: body.couponCode,
     });
+  }
+
+  /** Comprueba un código de descuento: { eventId, seatIds | quantities, code }. */
+  @Post("coupons/quote")
+  quoteCoupon(
+    @Param("slug") slug: string,
+    @Body() body: { eventId?: string; seatIds?: unknown; quantities?: unknown; code?: unknown },
+  ) {
+    return this.shop.quoteCoupon(slug, body?.eventId ?? "", body ?? {}, body?.code);
   }
 }

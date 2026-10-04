@@ -309,6 +309,7 @@ export interface IssuedTicketRow {
   isGeneral: boolean;
   channel: TicketChannel;
   checkedInAt: string | null;
+  couponCode: string | null;
 }
 
 export interface TicketFilters {
@@ -385,6 +386,38 @@ export async function downloadTicketsCsv(token: string, eventId: string, f: Tick
   a.click();
   URL.revokeObjectURL(url);
 }
+
+export type CouponKind = "PERCENT" | "AMOUNT";
+
+export interface Coupon {
+  id: string;
+  eventId: string | null;
+  code: string;
+  kind: CouponKind;
+  /** % (1-100) o céntimos por entrada. */
+  value: number;
+  ticketTypeIds: string[] | null;
+  maxUses: number | null;
+  validFrom: string | null;
+  validTo: string | null;
+  active: boolean;
+  uses: number;
+  discountedCents: number;
+}
+
+export type CouponInput = Partial<Omit<Coupon, "id" | "uses" | "discountedCents">>;
+
+export const listCoupons = (token: string, eventId: string) =>
+  authed<Coupon[]>(token, `/coupons?eventId=${eventId}`);
+
+export const createCoupon = (token: string, data: CouponInput) =>
+  authed<Coupon>(token, "/coupons", { method: "POST", body: JSON.stringify(data) });
+
+export const updateCoupon = (token: string, id: string, data: CouponInput) =>
+  authed<Coupon>(token, `/coupons/${id}`, { method: "PATCH", body: JSON.stringify(data) });
+
+export const deleteCoupon = (token: string, id: string) =>
+  authed<{ ok: true }>(token, `/coupons/${id}`, { method: "DELETE" });
 
 export type ImageKind = "event" | "cover" | "logo";
 

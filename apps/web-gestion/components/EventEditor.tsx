@@ -13,13 +13,14 @@ import {
 } from "../lib/api";
 import { formatInZone } from "../lib/time";
 import AttendeeFieldsPanel from "./AttendeeFieldsPanel";
+import CouponsPanel from "./CouponsPanel";
 import EventDetailsForm from "./EventDetailsForm";
 import { STATUS_LABEL } from "./EventsList";
 import SeatmapEditor from "./SeatmapEditor";
 import TicketsPanel from "./TicketsPanel";
 import TicketTypesPanel from "./TicketTypesPanel";
 
-type Tab = "summary" | "details" | "tickets" | "form" | "map" | "attendees";
+type Tab = "summary" | "details" | "tickets" | "form" | "map" | "coupons" | "attendees";
 
 const CONFIRM: Partial<Record<StatusAction, string>> = {
   cancel:
@@ -102,6 +103,7 @@ export default function EventEditor({
     { id: "details", label: "Detalles" },
     { id: "tickets", label: `Entradas (${detail.ticketTypes.length})` },
     { id: "form", label: "Formulario" },
+    { id: "coupons", label: "Descuentos" },
     ...(ev.seatingMode === "RESERVED" ? [{ id: "map" as Tab, label: "Plano" }] : []),
     ...(ev.status !== "DRAFT" || stats.sold > 0 ? [{ id: "attendees" as Tab, label: `Asistentes (${stats.sold})` }] : []),
   ];
@@ -262,6 +264,7 @@ export default function EventEditor({
       )}
       {tab === "form" && <AttendeeFieldsPanel token={token} detail={detail} disabled={cancelled} />}
       {tab === "map" && <SeatmapEditor token={token} eventId={eventId} />}
+      {tab === "coupons" && <CouponsPanel token={token} detail={detail} disabled={cancelled} />}
       {tab === "attendees" && <TicketsPanel token={token} detail={detail} onChanged={reload} />}
     </div>
   );

@@ -2,13 +2,22 @@ import { randomUUID } from "node:crypto";
 import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { schema } from "@ticketing/database";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
+
+type Tx = Parameters<Parameters<TenantDb["run"]>[0]>[0];
+
+/** Cupón aplicado a un pedido (se vuelve a comprobar, con bloqueo, al crearlo). */
+interface AppliedCoupon {
+  code: string;
+  lines: PricedLine[];
+}
 import { AdminDb } from "../database/admin-db.service";
 import { getStore } from "../database/tenant-context";
 import { TenantDb } from "../database/tenant-db.service";
 import { PAYMENT_PROVIDER, PaymentProvider } from "../payments/payment-provider";
 import { SEATS_SOLD, type SeatsSoldEvent } from "../realtime/seat-events";
 import { validateAttendees } from "../catalog/attendee";
+import { type PricedLine, resolveCouponTx } from "../catalog/coupon";
 import { currentPriceCents } from "../catalog/pricing";
 import { eventSalesState, SALES_REASON_TEXT } from "../catalog/sales-rules";
 import { listTx as listFieldsTx } from "../events/attendee-fields.service";
@@ -38,12 +47,12 @@ export class CheckoutService {
   async createCheckout(
     holdId: string,
     buyerEmail?: string,
-    buyer: { name?: string | null; attendees?: unknown } = {},
+    buyer: { name?: string | null; attendees?: unknown; couponCode?: string | null } = {},
   ) {
     const tenantId = getStore()!.tenantId;
 
     // 1) Validar hold y calcular importe desde los precios reales (lectura).
-    const { amountCents } = await this.db.run(async (tx) => {
+    const { amountCents, discountCents, coupon } = await this.db.run(async (tx) => {
       const [h] = await tx
         .select()
         .from(schema.hold)
@@ -81,23 +90,20 @@ export class CheckoutService {
 
       // Precio VIGENTE por asiento (anticipada/normal) vía su categoría. Queda fijado
       // aquí: es el importe del PaymentIntent aunque la anticipada caduque al pagar.
-      const priced = await tx
-        .select({ seatId: schema.seat.id, amount: currentPriceCents(schema.ticketType.id) })
-        .from(schema.holdSeat)
-        .innerJoin(schema.seat, eq(schema.seat.id, schema.holdSeat.seatId))
-        .innerJoin(schema.ticketType, eq(schema.ticketType.id, schema.seat.ticketTypeId))
-        .where(eq(schema.holdSeat.holdId, h.id));
-
-      if (priced.length !== seats.length || priced.some((p) => p.amount == null)) {
-        throw new BadRequestException("Hay asientos sin precio asignado");
-      }
-      const total = priced.reduce((acc, r) => acc + BigInt(r.amount!), 0n);
-      return { amountCents: total };
+      const lines = await this.priceHoldTx(tx, h.id, seats.length);
+      const subtotal = lines.reduce((acc, l) => acc + l.amountCents, 0);
+      const code = buyer.couponCode?.trim();
+      const discount = code ? (await resolveCouponTx(tx, code, h.eventId, lines)).discountCents : 0;
+      return {
+        amountCents: BigInt(subtotal - discount),
+        discountCents: BigInt(discount),
+        coupon: code ? { code, lines } : null,
+      };
     });
 
-    // Pedido GRATUITO (entradas a 0 €): no hay nada que cobrar → se emite ya.
+    // Pedido GRATUITO (entradas a 0 €, o 100 % de descuento): nada que cobrar → se emite ya.
     const buyerName = buyer.name?.trim() || null;
-    if (amountCents === 0n) return this.fulfillFreeOrder(holdId, buyerEmail, buyerName);
+    if (amountCents === 0n) return this.fulfillFreeOrder(holdId, buyerEmail, buyerName, coupon);
 
     const orderId = randomUUID();
 
@@ -112,9 +118,17 @@ export class CheckoutService {
         .where(and(eq(schema.hold.id, holdId), eq(schema.hold.status, "ACTIVE")));
       if (!h) throw new ConflictException("El hold dejó de estar activo");
 
-      await tx
-        .insert(schema.order)
-        .values({ id: orderId, tenantId, eventId: h.eventId, status: "PENDING", buyerEmail, buyerName });
+      const couponId = coupon ? await this.claimCouponTx(tx, coupon, h.eventId, discountCents) : null;
+      await tx.insert(schema.order).values({
+        id: orderId,
+        tenantId,
+        eventId: h.eventId,
+        status: "PENDING",
+        buyerEmail,
+        buyerName,
+        couponId,
+        discountCents,
+      });
       await tx.update(schema.hold).set({ orderId }).where(eq(schema.hold.id, h.id));
       await tx.insert(schema.payment).values({
         tenantId,
@@ -130,14 +144,83 @@ export class CheckoutService {
     return {
       orderId,
       amountCents: amountCents.toString(),
+      discountCents: discountCents.toString(),
       currency: CURRENCY,
       clientSecret: intent.clientSecret,
       publishableKey: process.env.STRIPE_PUBLISHABLE_KEY,
     };
   }
 
+  /**
+   * Presupuesto con un código de descuento sobre una SELECCIÓN (aún sin reservar), para
+   * que la tienda muestre el total antes de comprar. No gasta el uso: eso se hace al
+   * crear el pedido, donde todo se vuelve a comprobar.
+   */
+  async quote(eventId: string, selection: { seatIds?: string[]; quantities?: Record<string, number> }, code: string) {
+    return this.db.run(async (tx) => {
+      const lines: PricedLine[] = [];
+      if (selection.quantities) {
+        const ids = Object.keys(selection.quantities);
+        const types = ids.length
+          ? await tx
+              .select({ id: schema.ticketType.id, amount: currentPriceCents(schema.ticketType.id) })
+              .from(schema.ticketType)
+              .where(and(eq(schema.ticketType.eventId, eventId), inArray(schema.ticketType.id, ids)))
+          : [];
+        for (const t of types) {
+          const n = selection.quantities[t.id];
+          if (!Number.isInteger(n) || n < 0 || n > 100) throw new BadRequestException("Cantidad inválida");
+          for (let i = 0; i < n; i++) lines.push({ ticketTypeId: t.id, amountCents: Number(t.amount ?? 0) });
+        }
+      } else if (selection.seatIds?.length) {
+        const seats = await tx
+          .select({ ticketTypeId: schema.ticketType.id, amount: currentPriceCents(schema.ticketType.id) })
+          .from(schema.seat)
+          .innerJoin(schema.ticketType, eq(schema.ticketType.id, schema.seat.ticketTypeId))
+          .where(and(eq(schema.seat.eventId, eventId), inArray(schema.seat.id, selection.seatIds.slice(0, 100))));
+        lines.push(...seats.map((s) => ({ ticketTypeId: s.ticketTypeId, amountCents: Number(s.amount ?? 0) })));
+      }
+      if (lines.length === 0) throw new BadRequestException("Elige primero tus entradas");
+      const { coupon, discountCents } = await resolveCouponTx(tx, code, eventId, lines);
+      const subtotal = lines.reduce((a, l) => a + l.amountCents, 0);
+      return { code: coupon.code, subtotalCents: subtotal, discountCents, totalCents: subtotal - discountCents };
+    });
+  }
+
+  /** Precio vigente de cada plaza del hold. */
+  private async priceHoldTx(tx: Tx, holdId: string, seatCount: number): Promise<PricedLine[]> {
+    const priced = await tx
+      .select({ ticketTypeId: schema.ticketType.id, amount: currentPriceCents(schema.ticketType.id) })
+      .from(schema.holdSeat)
+      .innerJoin(schema.seat, eq(schema.seat.id, schema.holdSeat.seatId))
+      .innerJoin(schema.ticketType, eq(schema.ticketType.id, schema.seat.ticketTypeId))
+      .where(eq(schema.holdSeat.holdId, holdId));
+    if (priced.length !== seatCount || priced.some((p) => p.amount == null)) {
+      throw new BadRequestException("Hay asientos sin precio asignado");
+    }
+    return priced.map((p) => ({ ticketTypeId: p.ticketTypeId, amountCents: Number(p.amount) }));
+  }
+
+  /**
+   * Vuelve a validar el cupón BLOQUEANDO su fila (límite de usos sin carreras) dentro
+   * de la transacción que crea el pedido. Si el descuento cambió entre el cálculo y
+   * ahora (p.ej. se editó el cupón), se rechaza: el importe ya se pidió a la pasarela.
+   */
+  private async claimCouponTx(tx: Tx, c: AppliedCoupon, eventId: string, expected: bigint) {
+    const { coupon, discountCents } = await resolveCouponTx(tx, c.code, eventId, c.lines, true);
+    if (BigInt(discountCents) !== expected) {
+      throw new ConflictException("El código de descuento ha cambiado; vuelve a aplicarlo");
+    }
+    return coupon.id;
+  }
+
   /** Emite en el acto un pedido de importe 0 (mismo camino que un pago confirmado). */
-  private async fulfillFreeOrder(holdId: string, buyerEmail?: string, buyerName?: string | null) {
+  private async fulfillFreeOrder(
+    holdId: string,
+    buyerEmail?: string,
+    buyerName?: string | null,
+    coupon?: AppliedCoupon | null,
+  ) {
     const tenantId = getStore()!.tenantId;
     const sold = await this.db.run(async (tx) => {
       const [h] = await tx
@@ -145,9 +228,11 @@ export class CheckoutService {
         .from(schema.hold)
         .where(and(eq(schema.hold.id, holdId), eq(schema.hold.status, "ACTIVE")));
       if (!h) throw new ConflictException("El hold dejó de estar activo");
+      const discountCents = coupon ? BigInt(coupon.lines.reduce((a, l) => a + l.amountCents, 0)) : 0n;
+      const couponId = coupon ? await this.claimCouponTx(tx, coupon, h.eventId, discountCents) : null;
       const [o] = await tx
         .insert(schema.order)
-        .values({ tenantId, eventId: h.eventId, status: "PAID", buyerEmail, buyerName })
+        .values({ tenantId, eventId: h.eventId, status: "PAID", buyerEmail, buyerName, couponId, discountCents })
         .returning();
       await tx.update(schema.hold).set({ orderId: o.id }).where(eq(schema.hold.id, h.id));
       const { eventId, tickets } = await this.reservation.fulfillPaidOrderTx(tx, tenantId, o.id);

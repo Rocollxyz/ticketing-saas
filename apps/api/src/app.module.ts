@@ -5,6 +5,7 @@ import { AccessModule } from "./access/access.module";
 import { AuthModule } from "./auth/auth.module";
 import { CheckoutModule } from "./checkout/checkout.module";
 import { TenantMiddleware } from "./common/tenant.middleware";
+import { CouponsModule } from "./coupons/coupons.module";
 import { DatabaseModule } from "./database/database.module";
 import { EventsModule } from "./events/events.module";
 import { HealthController } from "./health/health.controller";
@@ -31,6 +32,7 @@ import { UploadsModule } from "./uploads/uploads.module";
     AuthModule,
     EventsModule,
     TicketsModule,
+    CouponsModule,
     ReservationModule,
     CheckoutModule,
     StorefrontModule,

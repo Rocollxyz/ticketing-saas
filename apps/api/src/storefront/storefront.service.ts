@@ -8,6 +8,7 @@ import { AdminDb } from "../database/admin-db.service";
 import { tenantContext } from "../database/tenant-context";
 import { TenantDb } from "../database/tenant-db.service";
 import { CheckoutService } from "../checkout/checkout.service";
+import { hasActiveCouponTx } from "../catalog/coupon";
 import { listTx as listFieldsTx } from "../events/attendee-fields.service";
 import { HoldReleaseService } from "../reservation/hold-release.service";
 import { ReservationService } from "../reservation/reservation.service";
@@ -287,6 +288,8 @@ export class StorefrontService {
             options: f.options,
             ticketTypeIds: f.ticketTypeIds,
           })),
+          // Solo para mostrar (o no) la casilla «código de descuento»; nunca los códigos.
+          couponsAvailable: await hasActiveCouponTx(tx, eventId),
           sales: st.open
             ? { open: true, message: null }
             : { open: false, message: SALES_REASON_TEXT[st.reason], from: st.from ?? null },
@@ -397,7 +400,7 @@ export class StorefrontService {
     slug: string,
     holdId: string,
     buyerEmail?: string,
-    buyer: { name?: unknown; attendees?: unknown } = {},
+    buyer: { name?: unknown; attendees?: unknown; couponCode?: unknown } = {},
   ) {
     const email = buyerEmail?.trim().toLowerCase();
     if (!email || email.length > 254 || !EMAIL_RE.test(email)) {
@@ -410,7 +413,34 @@ export class StorefrontService {
       this.checkout.createCheckout(holdId, email, {
         name: buyer.name as string | undefined,
         attendees: buyer.attendees,
+        couponCode: couponCodeOf(buyer.couponCode),
       }),
     );
   }
+
+  /** Total de una selección con un código de descuento (sin reservar ni gastar el uso). */
+  quoteCoupon(
+    slug: string,
+    eventId: string,
+    selection: { seatIds?: unknown; quantities?: unknown },
+    code: unknown,
+  ) {
+    const c = couponCodeOf(code);
+    if (!c) throw new BadRequestException("Escribe un código");
+    if (!UUID_RE.test(eventId)) throw new BadRequestException("Evento inválido");
+    const seatIds = Array.isArray(selection.seatIds) ? selection.seatIds.filter((s) => typeof s === "string") : undefined;
+    const quantities =
+      selection.quantities && typeof selection.quantities === "object"
+        ? (selection.quantities as Record<string, number>)
+        : undefined;
+    return this.withTenant(slug, () => this.checkout.quote(eventId, { seatIds, quantities }, c));
+  }
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function couponCodeOf(v: unknown): string | null {
+  if (v == null || v === "") return null;
+  if (typeof v !== "string" || v.length > 40) throw new BadRequestException("Código de descuento no válido");
+  return v.trim() || null;
 }
