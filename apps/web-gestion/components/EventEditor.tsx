@@ -18,10 +18,11 @@ import CouponsPanel from "./CouponsPanel";
 import EventDetailsForm from "./EventDetailsForm";
 import { STATUS_LABEL } from "./EventsList";
 import SeatmapEditor from "./SeatmapEditor";
+import SessionsPanel from "./SessionsPanel";
 import TicketsPanel from "./TicketsPanel";
 import TicketTypesPanel from "./TicketTypesPanel";
 
-type Tab = "summary" | "details" | "tickets" | "form" | "map" | "coupons" | "attendees";
+type Tab = "summary" | "details" | "sessions" | "tickets" | "form" | "map" | "coupons" | "attendees";
 
 const CONFIRM: Partial<Record<StatusAction, string>> = {
   cancel:
@@ -128,6 +129,7 @@ export default function EventEditor({
   const tabs: { id: Tab; label: string }[] = [
     { id: "summary", label: "Resumen" },
     { id: "details", label: "Detalles" },
+    { id: "sessions", label: "Funciones" },
     { id: "tickets", label: `Entradas (${detail.ticketTypes.length})` },
     { id: "form", label: "Formulario" },
     { id: "coupons", label: "Descuentos" },
@@ -294,6 +296,7 @@ export default function EventEditor({
       {tab === "details" && (
         <EventDetailsForm token={token} detail={detail} disabled={cancelled} onSaved={setDetail} />
       )}
+      {tab === "sessions" && <SessionsPanel token={token} detail={detail} onOpen={onOpen} onChanged={reload} />}
       {tab === "tickets" && (
         <TicketTypesPanel token={token} detail={detail} disabled={cancelled} onChanged={reload} />
       )}

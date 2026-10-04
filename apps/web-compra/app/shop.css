@@ -113,6 +113,17 @@ a { color: var(--accent); }
 .live { font-size: 12px; color: var(--faint); text-transform: none; letter-spacing: 0; font-weight: 500; }
 .live.on { color: var(--ok); }
 
+/* Varias funciones: selector de fecha. */
+.ev-sessions { margin: 0 0 24px; display: grid; gap: 10px; }
+.ev-sessions h2 { font-size: 16px; margin: 0; }
+.ev-sessions-list { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+.ev-session { flex: none; display: grid; gap: 2px; min-width: 112px; padding: 10px 14px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface); color: var(--text); text-decoration: none; font-size: 13px; text-transform: capitalize; }
+.ev-session span { color: var(--muted); }
+.ev-session small { color: var(--warn); font-size: 11px; text-transform: none; }
+a.ev-session:hover { border-color: var(--accent); }
+.ev-session.on { border: 2px solid var(--accent); padding: 9px 13px; background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
+.ev-session.off:not(.on) { opacity: .6; }
+
 /* Rejilla: información en el centro, compra fija a la derecha. */
 .ev-grid {
   display: grid; gap: 28px; align-items: start;

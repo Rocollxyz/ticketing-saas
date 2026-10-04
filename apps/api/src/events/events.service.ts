@@ -18,6 +18,22 @@ type EventRow = typeof schema.event.$inferSelect;
 
 export type StatusAction = "publish" | "unpublish" | "close" | "reopen" | "cancel";
 
+/** Información común de un espectáculo que «aplicar a todas las funciones» copia. */
+const SERIES_SHARED_FIELDS = [
+  "name",
+  "summary",
+  "description",
+  "category",
+  "imageUrl",
+  "venueId",
+  "visibility",
+  "minAge",
+  "maxPerOrder",
+  "refundPolicy",
+  "contactEmail",
+  "confirmationMessage",
+] as const;
+
 /**
  * Entradas vendidas (no anuladas) / recaudación neta (cobros menos devoluciones hechas)
  * / aforo por evento, como subconsultas.
@@ -175,7 +191,86 @@ export class EventsService {
         .update(schema.event)
         .set({ ...data, updatedAt: new Date() })
         .where(eq(schema.event.id, eventId));
+
+      // «Aplicar a todas las funciones»: la información común del espectáculo (no las
+      // fechas, ventanas de venta ni el modo de aforo, que son de cada función).
+      if (body.applyToSeries === true && ev.seriesId) {
+        const shared = Object.fromEntries(
+          Object.entries(data).filter(([k]) => (SERIES_SHARED_FIELDS as readonly string[]).includes(k)),
+        );
+        if (Object.keys(shared).length) {
+          await tx
+            .update(schema.event)
+            .set({ ...shared, updatedAt: new Date() })
+            .where(
+              and(
+                eq(schema.event.seriesId, ev.seriesId),
+                ne(schema.event.id, eventId),
+                ne(schema.event.status, "CANCELLED"),
+              ),
+            );
+        }
+      }
       return this.getTx(tx, eventId);
+    });
+  }
+
+  /** Funciones del mismo espectáculo (incluida esta), por fecha. */
+  sessions(eventId: string) {
+    return this.db.run(async (tx) => {
+      const ev = await this.loadTx(tx, eventId);
+      if (!ev.seriesId) {
+        const [one] = await tx
+          .select({ id: schema.event.id, startsAt: schema.event.startsAt, status: schema.event.status, sold: soldSql, capacity: capacitySql })
+          .from(schema.event)
+          .where(eq(schema.event.id, eventId));
+        return { seriesId: null, sessions: [one] };
+      }
+      const list = await tx
+        .select({ id: schema.event.id, startsAt: schema.event.startsAt, status: schema.event.status, sold: soldSql, capacity: capacitySql })
+        .from(schema.event)
+        .where(eq(schema.event.seriesId, ev.seriesId))
+        .orderBy(sql`${schema.event.startsAt} asc nulls last`);
+      return { seriesId: ev.seriesId, sessions: list };
+    });
+  }
+
+  /**
+   * Nueva FUNCIÓN del mismo espectáculo en otra fecha: copia la función (entradas,
+   * precios, plano, huecos, formulario) y desplaza sus fechas relacionadas (puertas,
+   * fin, fin de venta, precio anticipado) lo mismo que el inicio. Nace en borrador.
+   */
+  async addSession(eventId: string, body: Record<string, unknown>) {
+    this.assertPromoter();
+    const startsAt = input.date(body.startsAt, "Fecha de la función");
+    if (!startsAt) throw new BadRequestException("Indica la fecha y hora de la función");
+    if (startsAt.getTime() <= Date.now()) throw new BadRequestException("La función debe ser en el futuro");
+    const tenantId = getStore()!.tenantId;
+    return this.db.run(async (tx) => {
+      const src = await this.loadTx(tx, eventId, true);
+      let seriesId = src.seriesId;
+      if (!seriesId) {
+        [{ id: seriesId }] = await tx.insert(schema.eventSeries).values({ tenantId }).returning({ id: schema.eventSeries.id });
+        await tx.update(schema.event).set({ seriesId }).where(eq(schema.event.id, eventId));
+      }
+      const clash = await tx
+        .select({ id: schema.event.id })
+        .from(schema.event)
+        .where(and(eq(schema.event.seriesId, seriesId), eq(schema.event.startsAt, startsAt)));
+      if (clash.length) throw new ConflictException("Ya hay una función de este espectáculo a esa hora");
+      const delta = src.startsAt ? startsAt.getTime() - src.startsAt.getTime() : 0;
+      const shift = (d: Date | null) => (d && delta ? new Date(d.getTime() + delta) : d);
+      const copy = await this.duplicateTx(tx, src, {
+        name: src.name,
+        seriesId,
+        startsAt,
+        endsAt: shift(src.endsAt),
+        doorsAt: shift(src.doorsAt),
+        salesStartAt: src.salesStartAt,
+        salesEndAt: shift(src.salesEndAt),
+        priceShiftMs: delta,
+      });
+      return { id: copy.id, seriesId };
     });
   }
 
@@ -243,9 +338,26 @@ export class EventsService {
    */
   async duplicate(eventId: string) {
     this.assertPromoter();
-    const tenantId = getStore()!.tenantId;
     return this.db.run(async (tx) => {
       const src = await this.loadTx(tx, eventId);
+      // Una copia es un evento NUEVO (no otra función del mismo espectáculo).
+      return this.duplicateTx(tx, src, { name: `${src.name} (copia)`, seriesId: null });
+    });
+  }
+
+  /** Copia un evento con sus entradas, precios, plano, huecos y formulario. */
+  private async duplicateTx(
+    tx: Tx,
+    src: EventRow,
+    over: Partial<Pick<EventRow, "name" | "seriesId" | "startsAt" | "endsAt" | "doorsAt" | "salesStartAt" | "salesEndAt">> & {
+      /** Desplaza las fechas del precio anticipado (funciones en otra fecha). */
+      priceShiftMs?: number;
+    },
+  ) {
+    const tenantId = getStore()!.tenantId;
+    const eventId = src.id;
+    const { priceShiftMs = 0, ...overrides } = over;
+    {
       const {
         id: _id,
         createdAt: _c,
@@ -257,7 +369,7 @@ export class EventsService {
       } = src;
       const [copy] = await tx
         .insert(schema.event)
-        .values({ ...fields, tenantId, name: `${src.name} (copia)`, status: "DRAFT" })
+        .values({ ...fields, ...overrides, tenantId, status: "DRAFT" })
         .returning();
 
       const types = await tx.select().from(schema.ticketType).where(eq(schema.ticketType.eventId, eventId));
@@ -276,8 +388,8 @@ export class EventsService {
               ticketTypeId: n.id,
               amountCents: p.amountCents,
               currency: p.currency,
-              validFrom: p.validFrom,
-              validTo: p.validTo,
+              validFrom: p.validFrom && priceShiftMs ? new Date(p.validFrom.getTime() + priceShiftMs) : p.validFrom,
+              validTo: p.validTo && priceShiftMs ? new Date(p.validTo.getTime() + priceShiftMs) : p.validTo,
             })),
           );
         }
@@ -344,7 +456,7 @@ export class EventsService {
         await syncGeneralSeats(tx, tenantId, copy.id, typeMap.get(tt.id)!, n);
       }
       return copy;
-    });
+    }
   }
 
   /** Lo que falta para poder vender. Lista vacía = listo. */

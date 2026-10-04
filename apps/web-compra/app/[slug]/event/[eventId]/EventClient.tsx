@@ -80,6 +80,7 @@ export default function EventClient({
   const router = useRouter();
   const [detail, setDetail] = useState(initial);
   const { event: ev, venue, sales } = detail;
+  const sessions = detail.sessions ?? [];
   // Un evento puede mezclar categorías NUMERADAS (asiento en el plano) y GENERALES (por
   // cantidad), p. ej. platea + pista. (`seating` falta en APIs antiguas: manda el evento.)
   const seatingOf = (t: ShopTicketType) => t.seating ?? ev.seatingMode;
@@ -680,6 +681,36 @@ export default function EventClient({
           </div>
         </div>
       </header>
+
+      {sessions.length > 1 && (
+        // Varias funciones del mismo espectáculo: se elige la fecha (cada una, su propio aforo).
+        <nav className="ev-sessions" aria-label="Elige función">
+          <h2>Elige función</h2>
+          <div className="ev-sessions-list">
+            {sessions.map((x) => {
+              const current = x.id === ev.id;
+              const off = x.soldOut || x.closed;
+              const label = (
+                <>
+                  <strong>{formatDate(x.startsAt, ev.timezone, { dayOnly: true })}</strong>
+                  <span>{formatDate(x.startsAt, ev.timezone, { timeOnly: true })}</span>
+                  {off && <small>{x.soldOut ? "Agotado" : "Venta cerrada"}</small>}
+                </>
+              );
+              return current || hold ? (
+                <span key={x.id} className={`ev-session${current ? " on" : ""}${off ? " off" : ""}`} aria-current={current ? "date" : undefined}>
+                  {label}
+                </span>
+              ) : (
+                <a key={x.id} className={`ev-session${off ? " off" : ""}`} href={`${base}/event/${x.id}${embed && backToList ? "?desde=cartelera" : ""}`}>
+                  {label}
+                </a>
+              );
+            })}
+          </div>
+          {hold && <small className="faint">Para cambiar de función, libera antes tus entradas.</small>}
+        </nav>
+      )}
 
       <div className={`ev-grid ${showMap ? "" : "no-map"}`}>
         {showMap && (

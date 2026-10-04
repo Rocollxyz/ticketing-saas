@@ -62,6 +62,20 @@ directorio de promotores en la portada `/` (hoy es una demo fija).
   Tabla `seatmap_feature` (migración 0018). **Para Raquel**: su editor nuevo debe leer y
   guardar estos elementos (o migrarlos a sus formas) para no perderlos.
 
+### Teatros: funciones y lo que falta frente a Bacantix (2026-10-04)
+- ✅ **Varias funciones de un espectáculo**: pestaña «Funciones» en la consola (añadir otra
+  fecha copia entradas, precios —con la anticipada desplazada—, plano, huecos y formulario;
+  nace en borrador). Cada función es un evento con su aforo, ventas, estado y liquidación.
+  «Aplicar también a las demás funciones» en Detalles (textos, imagen, recinto, normas; no
+  fechas). Tienda: una sola tarjeta por espectáculo («3 funciones · 28–30 dic») y «Elige
+  función» en la ficha (bloqueado con entradas reservadas). Tabla `event_series` +
+  `event.series_id` (migración 0019).
+- **Hueco**: en la lista de eventos de la consola las funciones salen como filas sueltas con
+  el mismo nombre (se distinguen por fecha); agruparlas cuando haya muchas.
+- Siguiente: **tarifas por asiento** (general, jubilado, estudiante… sobre la misma butaca).
+- Después: abonos, gastos de gestión, taquilla profesional (cierre de caja, impresión
+  térmica, grupos), liquidaciones por función, planos reales (línea Raquel).
+
 ### Presentación y experiencia del comprador (análisis 2026-10-04)
 - ✅ **Ficha de evento estilo Ticketmaster**: cabecera con cartel sin recortar, información en
   el centro y compra en una caja fija a la derecha por pasos (entradas → datos → pago); en
@@ -160,7 +174,7 @@ directorio de promotores en la portada `/` (hoy es una demo fija).
 ## Coordinación entre líneas
 - `main` nunca recibe trabajo a medias de Darrian/Raquel; se integrarán cuando estén
   maduras (decisión aparte).
-- La BD es compartida y ya tiene la migración **0018** (huecos/elementos del plano; 0017 eventos mixtos; 0016 tema de la tienda; 0015 RGPD; 0014 facturación, 0013
+- La BD es compartida y ya tiene la migración **0019** (funciones de un espectáculo; 0018 huecos/elementos del plano; 0017 eventos mixtos; 0016 tema de la tienda; 0015 RGPD; 0014 facturación, 0013
   reembolsos, 0012 cupones, 0011 datos de asistentes). Las claves de QR están cifradas:
   las ventanas de Darrian/Raquel necesitan la misma `MASTER_KEY` en su `.env`. Para que
   Darrian/Raquel tengan el código al día: en su ventana, «trae los cambios de main»

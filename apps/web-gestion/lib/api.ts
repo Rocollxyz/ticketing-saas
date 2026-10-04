@@ -51,6 +51,8 @@ export interface EventData {
   confirmationMessage: string | null;
   venueId: string | null;
   publishedAt: string | null;
+  /** Serie a la que pertenece (varias funciones del mismo espectáculo). */
+  seriesId: string | null;
 }
 
 export interface TicketTypeData {
@@ -194,7 +196,7 @@ export const getEvent = (token: string, id: string) => authed<EventDetail>(token
 export const createEvent = (token: string, data: Partial<EventData>) =>
   authed<EventData>(token, "/events", { method: "POST", body: JSON.stringify(data) });
 
-export const updateEvent = (token: string, id: string, data: Partial<EventData>) =>
+export const updateEvent = (token: string, id: string, data: Partial<EventData> & { applyToSeries?: boolean }) =>
   authed<EventDetail>(token, `/events/${id}`, { method: "PATCH", body: JSON.stringify(data) });
 
 export const setEventStatus = (token: string, id: string, action: StatusAction) =>
@@ -205,6 +207,25 @@ export const setEventStatus = (token: string, id: string, action: StatusAction) 
 
 export const duplicateEvent = (token: string, id: string) =>
   authed<EventData>(token, `/events/${id}/duplicate`, { method: "POST" });
+
+export interface SessionRow {
+  id: string;
+  startsAt: string | null;
+  status: EventStatus;
+  sold: number;
+  capacity: number;
+}
+
+/** Funciones del mismo espectáculo (incluida esta). Sin serie, solo esta. */
+export const listSessions = (token: string, id: string) =>
+  authed<{ seriesId: string | null; sessions: SessionRow[] }>(token, `/events/${id}/sessions`);
+
+/** Nueva función: copia del evento en otra fecha (entradas, precios, plano, formulario). */
+export const addSession = (token: string, id: string, startsAt: string) =>
+  authed<{ id: string; seriesId: string }>(token, `/events/${id}/sessions`, {
+    method: "POST",
+    body: JSON.stringify({ startsAt }),
+  });
 
 export const createTicketType = (token: string, eventId: string, data: TicketTypeInput) =>
   authed<{ id: string }>(token, `/events/${eventId}/ticket-types`, {

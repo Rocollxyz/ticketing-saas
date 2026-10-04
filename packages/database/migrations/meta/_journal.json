@@ -134,6 +134,13 @@
       "when": 1791122778154,
       "tag": "0018_seatmap_features",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1791124901610,
+      "tag": "0019_event_series",
+      "breakpoints": true
     }
   ]
 }

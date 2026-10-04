@@ -64,6 +64,8 @@ export default function EventDetailsForm({
   const [venueId, setVenueId] = useState<string>(detail.event.venueId ?? "");
   const [venue, setVenue] = useState<VenueForm>(venueForm(detail.venue));
   const [saving, setSaving] = useState(false);
+  // Con varias funciones: aplicar la información común (no fechas) a todas.
+  const [toSeries, setToSeries] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   useEffect(() => {
@@ -121,12 +123,13 @@ export default function EventDetailsForm({
         contactEmail: f.contactEmail || null,
         confirmationMessage: f.confirmationMessage || null,
         venueId: vId,
+        ...(toSeries && detail.event.seriesId ? { applyToSeries: true } : {}),
       });
       onSaved(saved);
       setF(toForm(saved.event));
       setVenueId(saved.event.venueId ?? "");
       setVenues(await listVenues(token));
-      setMsg({ ok: true, text: "Cambios guardados." });
+      setMsg({ ok: true, text: toSeries && detail.event.seriesId ? "Cambios guardados en todas las funciones." : "Cambios guardados." });
     } catch (err) {
       setMsg({ ok: false, text: err instanceof Error ? err.message : "Error" });
     } finally {
@@ -391,6 +394,12 @@ export default function EventDetailsForm({
           <button className="btn success" disabled={saving}>
             {saving ? "Guardando…" : "Guardar cambios"}
           </button>
+          {detail.event.seriesId && (
+            <label className="row" style={{ gap: 6, fontSize: 14 }} title="Nombre, textos, imagen, recinto, edad, normas… Las fechas y la venta son de cada función.">
+              <input type="checkbox" checked={toSeries} onChange={(e) => setToSeries(e.target.checked)} />
+              Aplicar también a las demás funciones (salvo fechas)
+            </label>
+          )}
         </div>
       )}
     </form>

@@ -123,6 +123,8 @@ export class StorefrontService {
         const rows = await tx
           .select({
             id: schema.event.id,
+            // Funciones del mismo espectáculo: la cartelera las agrupa en una tarjeta.
+            seriesId: schema.event.seriesId,
             name: schema.event.name,
             summary: schema.event.summary,
             category: schema.event.category,
@@ -311,6 +313,35 @@ export class StorefrontService {
             options: f.options,
             ticketTypeIds: f.ticketTypeIds,
           })),
+          // Funciones del espectáculo (incluida esta) que se pueden ver en la tienda.
+          sessions: ev.seriesId
+            ? (
+                await tx
+                  .select({
+                    id: schema.event.id,
+                    startsAt: schema.event.startsAt,
+                    status: schema.event.status,
+                    free: sql<number>`(
+                      select count(*) from seat s2
+                      where s2.event_id = ${qualified(schema.event.id)} and s2.ticket_type_id is not null
+                        and not exists (
+                          select 1 from hold_seat hs join hold h on h.id = hs.hold_id
+                          where hs.seat_id = s2.id
+                            and (hs.status = 'CONFIRMED' or (hs.status = 'ACTIVE' and h.expires_at > now()))
+                        )
+                    )`.mapWith(Number),
+                  })
+                  .from(schema.event)
+                  .where(
+                    and(
+                      eq(schema.event.seriesId, ev.seriesId),
+                      inArray(schema.event.status, ["ON_SALE", "CLOSED"]),
+                      sql`coalesce(${schema.event.endsAt}, ${schema.event.startsAt}, 'infinity') > now()`,
+                    ),
+                  )
+                  .orderBy(sql`${schema.event.startsAt} asc nulls last`)
+              ).map(({ free, status, ...x }) => ({ ...x, soldOut: free === 0, closed: status === "CLOSED" }))
+            : [],
           // Huecos (pasillos) y elementos con nombre del plano, para dibujarlo.
           mapFeatures:
             ev.seatingMode === "RESERVED"

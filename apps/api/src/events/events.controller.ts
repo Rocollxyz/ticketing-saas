@@ -41,6 +41,18 @@ export class EventsController {
     return this.events.setStatus(id, body?.action);
   }
 
+  /** Funciones del mismo espectáculo. */
+  @Get(":id/sessions")
+  sessions(@Param("id") id: string) {
+    return this.events.sessions(id);
+  }
+
+  /** Nueva función en otra fecha: { startsAt }. */
+  @Post(":id/sessions")
+  addSession(@Param("id") id: string, @Body() body: Record<string, unknown>) {
+    return this.events.addSession(id, body ?? {});
+  }
+
   @Post(":id/duplicate")
   duplicate(@Param("id") id: string) {
     return this.events.duplicate(id);

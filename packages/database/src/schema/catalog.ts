@@ -1,4 +1,4 @@
-import { bigint, boolean, foreignKey, integer, jsonb, pgTable, text, timestamp, unique, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { bigint, boolean, foreignKey, index, integer, jsonb, pgTable, text, timestamp, unique, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { attendeeFieldType, couponKind, eventStatus, eventVisibility, pk, seatingMode, softDelete, tenantId, timestamps } from "./_shared";
 import { tenant } from "./tenancy";
 
@@ -25,6 +25,21 @@ export const venue = pgTable(
   (t) => [unique("venue_tenant_id_uq").on(t.tenantId, t.id)],
 );
 
+/**
+ * Espectáculo con varias FUNCIONES (p. ej. la misma obra viernes, sábado y domingo). Cada
+ * función es un `event` completo (su fecha, su plano, su aforo); este registro solo las
+ * agrupa para mostrarlas juntas («elige función») y editarlas a la vez.
+ */
+export const eventSeries = pgTable(
+  "event_series",
+  {
+    id: pk(),
+    tenantId: tenantId().references(() => tenant.id, { onDelete: "restrict" }),
+    ...timestamps,
+  },
+  (t) => [unique("event_series_tenant_id_uq").on(t.tenantId, t.id)],
+);
+
 export const event = pgTable(
   "event",
   {
@@ -46,6 +61,8 @@ export const event = pgTable(
     // Resumen DERIVADO de sus categorías: RESERVED si alguna es numerada (hay plano),
     // GENERAL si todas son de aforo. Lo mantiene la API; la verdad está en ticket_type.seating.
     seatingMode: seatingMode("seating_mode").notNull().default("RESERVED"),
+    // Espectáculo al que pertenece esta función (null = evento suelto).
+    seriesId: uuid("series_id"),
     // Ventana de venta online del evento (null = desde publicar / hasta el inicio).
     salesStartAt: timestamp("sales_start_at", { withTimezone: true }),
     salesEndAt: timestamp("sales_end_at", { withTimezone: true }),
@@ -65,6 +82,12 @@ export const event = pgTable(
       foreignColumns: [venue.tenantId, venue.id],
       name: "event_venue_fk",
     }),
+    foreignKey({
+      columns: [t.tenantId, t.seriesId],
+      foreignColumns: [eventSeries.tenantId, eventSeries.id],
+      name: "event_series_fk",
+    }),
+    index("event_series_idx").on(t.seriesId),
   ],
 );
 

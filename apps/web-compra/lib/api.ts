@@ -17,6 +17,8 @@ export interface ShopEvent {
   soldOut: boolean;
   salesOpen: boolean;
   salesMessage: string | null;
+  /** Funciones de un mismo espectáculo comparten serie: la cartelera las agrupa. */
+  seriesId?: string | null;
 }
 
 export interface ShopSeat {
@@ -96,6 +98,8 @@ export interface EventDetail {
     termsUrl: string | null;
     retentionDays: number;
   };
+  /** Otras funciones del mismo espectáculo (incluida esta), por fecha. Vacío si es única. */
+  sessions?: { id: string; startsAt: string | null; soldOut: boolean; closed: boolean }[];
   /** Elementos del plano que no son butacas: huecos (pasillos) y elementos con nombre. */
   mapFeatures?: { kind: "gap" | "label"; label: string | null; posX: number; posY: number }[];
   /** Minutos que se guardan las entradas al reservar. */
@@ -246,13 +250,15 @@ export async function confirmReturn(
 }
 
 /** Fecha en la zona del evento: "sábado, 12 de diciembre de 2026, 21:00". */
-export function formatDate(iso: string | null, tz: string, opts: { long?: boolean; timeOnly?: boolean } = {}) {
+export function formatDate(iso: string | null, tz: string, opts: { long?: boolean; timeOnly?: boolean; dayOnly?: boolean } = {}) {
   if (!iso) return "Fecha por anunciar";
   return new Intl.DateTimeFormat("es-ES", {
     timeZone: tz,
     ...(opts.timeOnly
       ? { hour: "2-digit", minute: "2-digit" }
-      : {
+      : opts.dayOnly
+        ? { weekday: "short", day: "numeric", month: "short" }
+        : {
           weekday: opts.long ? "long" : "short",
           day: "numeric",
           month: opts.long ? "long" : "short",

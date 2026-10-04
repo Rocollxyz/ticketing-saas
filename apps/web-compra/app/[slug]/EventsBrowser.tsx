@@ -61,6 +61,56 @@ function priceLabel(e: ShopEvent) {
   return null;
 }
 
+/** Una tarjeta de la cartelera: un evento o un espectáculo con varias funciones. */
+type Card = ShopEvent & { sessions: number; lastStartsAt: string | null };
+
+/**
+ * Agrupa las funciones de un mismo espectáculo (misma serie) en una sola tarjeta, en el
+ * lugar de la primera. Enlaza a la primera función que se puede comprar; precio "desde"
+ * el menor y agotado solo si lo están todas.
+ */
+function groupSeries(list: ShopEvent[]): Card[] {
+  const out: Card[] = [];
+  const bySeries = new Map<string, ShopEvent[]>();
+  for (const e of list) {
+    if (!e.seriesId) {
+      out.push({ ...e, sessions: 1, lastStartsAt: e.startsAt });
+      continue;
+    }
+    const g = bySeries.get(e.seriesId);
+    if (g) {
+      g.push(e);
+      continue;
+    }
+    bySeries.set(e.seriesId, [e]);
+    out.push({ ...e, sessions: 1, lastStartsAt: e.startsAt }); // se completa abajo
+  }
+  return out.map((c) => {
+    const g = c.seriesId ? bySeries.get(c.seriesId) : undefined;
+    if (!g || g.length < 2) return c;
+    const pick = g.find((e) => e.salesOpen && !e.soldOut) ?? g[0];
+    const prices = g.map((e) => e.fromCents).filter((x): x is number => x != null);
+    return {
+      ...pick,
+      startsAt: g[0].startsAt,
+      lastStartsAt: g[g.length - 1].startsAt,
+      sessions: g.length,
+      soldOut: g.every((e) => e.soldOut),
+      allFree: g.every((e) => e.allFree),
+      fromCents: prices.length ? Math.min(...prices) : null,
+    };
+  });
+}
+
+/** "24 oct" o "24–26 oct" / "30 oct – 2 nov" para un espectáculo con varias funciones. */
+function rangeLabel(c: Card) {
+  const a = dayMonth(c.startsAt, c.timezone);
+  const b = dayMonth(c.lastStartsAt, c.timezone);
+  if (!a || !b) return formatDate(c.startsAt, c.timezone);
+  const range = a.month === b.month ? `${a.day}–${b.day} ${a.month}` : `${a.day} ${a.month} – ${b.day} ${b.month}`;
+  return `${c.sessions} funciones · ${range}`;
+}
+
 /**
  * Cartelera del promotor: evento destacado (el próximo a la venta), filtros en botones y
  * rejilla de carteles. Todo en el navegador: un promotor tiene pocos eventos a la vez.
@@ -94,15 +144,16 @@ export default function EventsBrowser({
   // Incrustada: la ficha sabe que viene de la cartelera para ofrecer «volver».
   const eventHref = (id: string) => `${base}/event/${id}${base.startsWith("/embed/") ? "?desde=cartelera" : ""}`;
   const filtering = !!(query || category || city || when !== "all");
-  const shown = events.filter(
+  const shown = groupSeries(events.filter(
     (e) =>
       (!category || e.category === category) &&
       (!city || e.venueCity === city) &&
       matchesWhen(e, when, now) &&
       (!query || norm([e.name, e.summary, e.venueName, e.venueCity].filter(Boolean).join(" ")).includes(query)),
-  );
+  ));
+  const total = groupSeries(events).length;
   // Destacado: el próximo que se puede comprar (solo sin filtros, para no esconder resultados).
-  const featured = filtering ? null : (events.find((e) => e.salesOpen && !e.soldOut && e.startsAt) ?? null);
+  const featured = filtering ? null : (shown.find((e) => e.salesOpen && !e.soldOut && e.startsAt) ?? null);
   const grid = featured ? shown.filter((e) => e.id !== featured.id) : shown;
 
   const reset = () => {
@@ -126,7 +177,8 @@ export default function EventsBrowser({
             <h3>{featured.name}</h3>
             {featured.summary && <p style={{ margin: 0, color: "var(--muted)" }}>{featured.summary}</p>}
             <span className="ev-fact" style={{ fontSize: 15 }}>
-              <Calendar size={17} /> {formatDate(featured.startsAt, featured.timezone, { long: true })}
+              <Calendar size={17} />{" "}
+              {featured.sessions > 1 ? rangeLabel(featured) : formatDate(featured.startsAt, featured.timezone, { long: true })}
             </span>
             {featured.venueName && (
               <span className="ev-fact" style={{ fontSize: 15 }}>
@@ -142,7 +194,7 @@ export default function EventsBrowser({
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
         <h2 style={{ margin: 0, fontSize: 22 }}>{featured ? "Toda la cartelera" : "Próximos eventos"}</h2>
         <span style={{ fontSize: 13, color: "var(--faint)" }}>
-          {filtering ? `${shown.length} de ${events.length}` : `${events.length} evento${events.length === 1 ? "" : "s"}`}
+          {filtering ? `${shown.length} de ${total}` : `${total} evento${total === 1 ? "" : "s"}`}
         </span>
       </div>
 
@@ -207,7 +259,7 @@ export default function EventsBrowser({
                 <div className="ev-card-body">
                   {e.category && <span className="badge-soft" style={{ fontSize: 11 }}>{e.category}</span>}
                   <strong>{e.name}</strong>
-                  <span className="ev-card-meta">{formatDate(e.startsAt, e.timezone)}</span>
+                  <span className="ev-card-meta">{e.sessions > 1 ? rangeLabel(e) : formatDate(e.startsAt, e.timezone)}</span>
                   {e.venueName && <span className="ev-card-meta">{[e.venueName, e.venueCity].filter(Boolean).join(" · ")}</span>}
                   {!e.soldOut && <span className="ev-card-price">{priceLabel(e)}</span>}
                 </div>
