@@ -17,6 +17,7 @@ import { RealtimeModule } from "./realtime/realtime.module";
 import { ReservationModule } from "./reservation/reservation.module";
 import { SeatmapModule } from "./seatmap/seatmap.module";
 import { StorefrontModule } from "./storefront/storefront.module";
+import { TicketsModule } from "./tickets/tickets.module";
 import { UploadsModule } from "./uploads/uploads.module";
 
 @Module({
@@ -29,6 +30,7 @@ import { UploadsModule } from "./uploads/uploads.module";
     PaymentsModule,
     AuthModule,
     EventsModule,
+    TicketsModule,
     ReservationModule,
     CheckoutModule,
     StorefrontModule,

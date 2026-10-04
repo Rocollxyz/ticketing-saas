@@ -50,6 +50,17 @@ a { color: var(--accent); }
 .badge.ON_SALE { background: #3ecf8e22; color: var(--green); }
 .badge.CLOSED { background: #e0a23c22; color: var(--amber); }
 .badge.CANCELLED { background: #ff6b6b22; color: var(--red); }
+.badge.ISSUED { background: #5b9dff22; color: var(--accent); }
+.badge.CHECKED_IN { background: #3ecf8e22; color: var(--green); }
+.badge.VOID { background: #ff6b6b22; color: var(--red); }
+
+.table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.table th { text-align: left; font-weight: 500; color: var(--faint); font-size: 12px; padding: 6px 8px; }
+.table td { padding: 9px 8px; border-top: 1px solid var(--border); vertical-align: top; }
+.table tr.clickable { cursor: pointer; }
+.table tr.clickable:hover td { background: var(--card-2); }
+.table tr.selected td { background: var(--card-2); }
+.table-wrap { overflow-x: auto; }
 
 .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin: 16px 0; }
 .tab { padding: 8px 14px; background: none; border: none; color: var(--muted); cursor: pointer; font-size: 14px;

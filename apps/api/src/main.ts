@@ -16,6 +16,7 @@ async function bootstrap() {
   // (dominios reales de las tiendas).
   app.enableCors({
     origin: process.env.WEB_ORIGIN ? process.env.WEB_ORIGIN.split(",") : true,
+    exposedHeaders: ["Content-Disposition"], // nombre del fichero en las descargas (CSV)
   });
 
   // Imágenes subidas (dev: disco local; en prod las serviría un CDN/bucket). Públicas.

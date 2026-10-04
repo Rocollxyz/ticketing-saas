@@ -13,8 +13,12 @@ import { SEATS_HELD, type SeatsHeldEvent } from "../realtime/seat-events";
 /** Tiempo que el comprador tiene para pagar con las entradas bloqueadas. */
 export const HOLD_TTL_MINUTES = Number(process.env.HOLD_TTL_MINUTES ?? 10);
 
-/** Canal de venta: la tienda online aplica ventanas y límites; la taquilla no. */
-export type SalesChannel = "online" | "pos";
+/**
+ * Canal de venta: la tienda online aplica ventanas y límites; la taquilla no. `manual`
+ * = entradas que el promotor añade a mano desde la consola (invitaciones): tampoco
+ * aplica límites y vale también con la venta cerrada.
+ */
+export type SalesChannel = "online" | "pos" | "manual";
 
 type Tx = Parameters<Parameters<TenantDb["run"]>[0]>[0];
 
@@ -140,11 +144,20 @@ export class ReservationService {
 
   /**
    * Evento vendible por este canal. Online: estado ON_SALE + ventana de venta. Taquilla:
-   * solo ON_SALE (en puerta se vende aunque la venta online haya cerrado).
+   * solo ON_SALE (en puerta se vende aunque la venta online haya cerrado). Manual:
+   * ON_SALE o CLOSED (invitaciones con la venta cerrada; nunca en borrador ni cancelado).
    */
   private async loadSellableEventTx(tx: Tx, eventId: string, channel: SalesChannel) {
     const [ev] = await tx.select().from(schema.event).where(eq(schema.event.id, eventId));
     if (!ev) throw new NotFoundException("Evento no encontrado");
+    if (channel === "manual") {
+      if (ev.status !== "ON_SALE" && ev.status !== "CLOSED") {
+        throw new ConflictException(
+          ev.status === "CANCELLED" ? SALES_REASON_TEXT.CANCELLED : "Publica el evento antes de emitir entradas",
+        );
+      }
+      return ev;
+    }
     if (channel === "pos") {
       if (ev.status !== "ON_SALE") {
         throw new ConflictException(
@@ -174,7 +187,7 @@ export class ReservationService {
     if (types.length !== perType.size) {
       throw new BadRequestException("Categoría inválida para el evento");
     }
-    if (channel === "pos") return; // en taquilla manda el taquillero
+    if (channel !== "online") return; // en taquilla manda el taquillero; a mano, el promotor
 
     const total = [...perType.values()].reduce((a, b) => a + b, 0);
     if (total > ev.maxPerOrder) {
@@ -308,6 +321,7 @@ export class ReservationService {
    * registro de order/payment los orquesta PosService alrededor de esta llamada.
    */
   async issueHoldForPosTx(tx: Tx, holdId: string, orderId: string): Promise<IssuedTicket[]> {
+    // También lo usa la emisión manual de la consola (TicketsService).
     const h = await this.lockActiveHold(tx, holdId);
     return this.confirmAndIssueForHoldTx(tx, h, orderId);
   }

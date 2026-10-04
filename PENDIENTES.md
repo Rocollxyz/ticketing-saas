@@ -33,10 +33,10 @@ npm run dev                   # API :3000 + webs :3001 compra, :3002 gestión, :
 | # | Qué | Estado |
 |---|---|---|
 | 1 | Datos de asistentes + campos personalizados | ✅ Hecho (commit `700bf9c`) |
-| 2 | **Gestión de entradas en la consola**: listar, buscar, editar asistente, reenviar, anular, añadir a mano (invitaciones), **exportar CSV** | ⏭️ **Siguiente** |
-| 3 | **Emails reales** (Resend/Brevo/SES) | Bloqueado: falta que el usuario elija servicio y dé la clave |
+| 2 | Gestión de entradas en la consola (pestaña «Asistentes»): listar, buscar, editar asistente, reenviar, anular (liberando la plaza), invitaciones, exportar CSV | ✅ Hecho |
+| 3 | **Emails reales** (Resend/Brevo/SES) | ⏭️ Siguiente — bloqueado: falta que el usuario elija servicio y dé la clave |
 | 4 | **Cupones / códigos de descuento** | Pendiente |
-| 5 | **Reembolsos y cancelaciones** (anular entrada **y liberar su plaza**: hoy anular no libera el asiento) + reembolso automático de `order.refund_required` | Pendiente |
+| 5 | **Reembolsos y cancelaciones**: devolver el dinero al anular (hoy anular ya libera la plaza pero no reembolsa) + reembolso automático de `order.refund_required` | Pendiente |
 | 6 | **Redsys + Bizum** (pasarela española) | Pendiente |
 | 7 | **IVA y facturas** | Pendiente |
 
@@ -49,6 +49,9 @@ prefijo de número de entrada · Stripe Connect / planes y comisiones para promo
 directorio de promotores en la portada `/` (hoy es una demo fija).
 
 ### Huecos conocidos de lo ya hecho
+- **Precio por entrada** no se guarda en `ticket` (el CSV no lo trae; el email usa el precio
+  vigente). Hará falta para IVA/facturas (#7).
+- Invitaciones en numerado: se asignan los primeros asientos libres; no se pueden elegir.
 - **Taquilla** no pide los datos de asistentes al vender en mostrador.
 - Plano de la tienda: un asiento vendido antes de abrir la página sale «ocupado» en vez de
   «vendido».

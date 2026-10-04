@@ -16,6 +16,9 @@ const BATCH = 20;
 interface TicketIssuedPayload {
   orderId: string;
   ticketIds: string[];
+  /** Reenvío desde la consola: destinatario distinto del comprador. */
+  to?: string;
+  resend?: boolean;
 }
 
 /**
@@ -164,10 +167,10 @@ export class OutboxWorkerService {
       });
     }
 
-    const to = order.buyerEmail ?? process.env.DEV_FALLBACK_EMAIL ?? "comprador@demo.test";
+    const to = payload.to ?? order.buyerEmail ?? process.env.DEV_FALLBACK_EMAIL ?? "comprador@demo.test";
     await this.email.send({
       to,
-      subject: `Tus entradas — ${ev?.name ?? "Evento"}`,
+      subject: `${payload.resend ? "Reenvío: tus" : "Tus"} entradas — ${ev?.name ?? "Evento"}`,
       text:
         `${order.buyerName ? `Hola ${order.buyerName},\n\n` : ""}` +
         `Adjuntamos ${attachments.length} entrada(s) para ${ev?.name ?? "el evento"}. ` +

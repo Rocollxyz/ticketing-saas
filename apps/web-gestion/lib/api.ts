@@ -283,6 +283,109 @@ export const reorderAttendeeFields = (token: string, eventId: string, ids: strin
     body: JSON.stringify({ ids }),
   });
 
+export type TicketStatus = "ISSUED" | "CHECKED_IN" | "VOID";
+export type TicketChannel = "online" | "taquilla" | "invitacion";
+
+export interface AttendeeAnswer {
+  fieldId: string;
+  label: string;
+  value: string;
+  onTicket?: boolean;
+  preset?: string;
+}
+
+export interface IssuedTicketRow {
+  id: string;
+  status: TicketStatus;
+  orderId: string;
+  attendeeName: string | null;
+  attendee: AttendeeAnswer[];
+  createdAt: string;
+  buyerEmail: string | null;
+  buyerName: string | null;
+  ticketTypeId: string | null;
+  categoria: string | null;
+  seat: string;
+  isGeneral: boolean;
+  channel: TicketChannel;
+  checkedInAt: string | null;
+}
+
+export interface TicketFilters {
+  q?: string;
+  status?: TicketStatus | "";
+  ticketTypeId?: string;
+}
+
+export interface TicketPage {
+  total: number;
+  offset: number;
+  pageSize: number;
+  counts: { issued: number; checkedIn: number; void: number };
+  tickets: IssuedTicketRow[];
+}
+
+const ticketQuery = (f: TicketFilters, offset?: number) => {
+  const p = new URLSearchParams();
+  if (f.q) p.set("q", f.q);
+  if (f.status) p.set("status", f.status);
+  if (f.ticketTypeId) p.set("ticketTypeId", f.ticketTypeId);
+  if (offset) p.set("offset", String(offset));
+  const s = p.toString();
+  return s ? `?${s}` : "";
+};
+
+export const listTickets = (token: string, eventId: string, f: TicketFilters, offset = 0) =>
+  authed<TicketPage>(token, `/events/${eventId}/tickets${ticketQuery(f, offset)}`);
+
+export const updateTicketAttendee = (token: string, eventId: string, ticketId: string, values: Record<string, unknown>) =>
+  authed<{ ok: true; attendee: AttendeeAnswer[]; attendeeName: string | null }>(
+    token,
+    `/events/${eventId}/tickets/${ticketId}/attendee`,
+    { method: "PATCH", body: JSON.stringify({ values }) },
+  );
+
+export const resendTicket = (token: string, eventId: string, ticketId: string, data: { to?: string; wholeOrder?: boolean }) =>
+  authed<{ ok: true; to: string; count: number }>(token, `/events/${eventId}/tickets/${ticketId}/resend`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+
+export const voidTicket = (token: string, eventId: string, ticketId: string, data: { release: boolean; reason?: string }) =>
+  authed<{ ok: true; released: boolean }>(token, `/events/${eventId}/tickets/${ticketId}/void`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+
+export const issueManualTickets = (
+  token: string,
+  eventId: string,
+  data: { quantities: Record<string, number>; buyerName?: string; buyerEmail?: string; sendEmail: boolean },
+) =>
+  authed<{ orderId: string; ticketIds: string[]; emailed: boolean }>(token, `/events/${eventId}/tickets`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+
+/** Descarga el CSV de asistentes (con los filtros actuales) como fichero. */
+export async function downloadTicketsCsv(token: string, eventId: string, f: TicketFilters) {
+  const r = await fetch(`${API_URL}/events/${eventId}/tickets/export.csv${ticketQuery(f)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  if (!r.ok) {
+    const body = await r.json().catch(() => null);
+    throw new ApiError(r.status, body?.message ?? `Error ${r.status}`);
+  }
+  const name = /filename="([^"]+)"/.exec(r.headers.get("content-disposition") ?? "")?.[1] ?? "asistentes.csv";
+  const url = URL.createObjectURL(await r.blob());
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export type ImageKind = "event" | "cover" | "logo";
 
 /** Sube una imagen (multipart). La API la valida, la recodifica a WebP y devuelve su URL. */
