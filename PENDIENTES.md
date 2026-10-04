@@ -54,10 +54,13 @@ directorio de promotores en la portada `/` (hoy es una demo fija).
   numerado, el plano en el centro; móvil con barra fija de compra; compartir y añadir al
   calendario; colores del promotor; tipografía Inter e iconos. Es la plantilla «Clásica» de
   Darrian (reutilizar `app/shop.css` como base de su sistema de temas).
+- ✅ **Página del promotor** en el mismo estilo: portada con logo, evento destacado (el próximo
+  a la venta), cartelera en rejilla de carteles con la fecha encima, filtros en botones
+  (fecha, categoría, ciudad), «Sobre…» con contacto y redes a la derecha, eventos pasados.
 - Siguientes, por orden: **integración en la web del promotor** (botón que abre la compra
   encima de su web + módulo incrustado de cartelera/evento; Redsys/3DS a pantalla completa),
   **Google y redes** (datos estructurados `Event`, imagen para compartir generada, sitemap),
-  **página del promotor** (evento destacado, rejilla de carteles, filtros), **dominio propio**
+  **dominio propio**
   por promotor, **después de comprar** (entradas visibles, Wallet, calendario) y la **portada
   `/`**. Decisión pendiente del usuario: marca blanca (recomendado) o escaparate propio.
 - ✅ **Tema de la tienda**: blanco por defecto (decidido 2026-10-04); el promotor puede elegir

@@ -1,5 +1,6 @@
 "use client";
 
+import { Calendar, MapPin, Search, Star, Ticket } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { euros, formatDate, type PastEvent, type ShopEvent } from "../../lib/api";
@@ -7,7 +8,7 @@ import { euros, formatDate, type PastEvent, type ShopEvent } from "../../lib/api
 type When = "all" | "week" | "month" | "next";
 
 const WHEN_LABEL: Record<When, string> = {
-  all: "Cualquier fecha",
+  all: "Todas las fechas",
   week: "Próximos 7 días",
   month: "Este mes",
   next: "Mes que viene",
@@ -38,18 +39,33 @@ const norm = (s: string) =>
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "");
 
-/** Cartelera del promotor con buscador y filtros (todo en cliente: son pocos eventos). */
-export default function EventsBrowser({
-  slug,
-  events,
-  past,
-  accent,
-}: {
-  slug: string;
-  events: ShopEvent[];
-  past: PastEvent[];
-  accent: string;
-}) {
+/** Día y mes abreviado para la etiqueta del cartel ("24" / "oct"). */
+function dayMonth(iso: string | null, tz: string) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  return {
+    day: new Intl.DateTimeFormat("es-ES", { timeZone: tz, day: "numeric" }).format(d),
+    month: new Intl.DateTimeFormat("es-ES", { timeZone: tz, month: "short" }).format(d).replace(".", ""),
+  };
+}
+
+/** Cartel del evento o, si no tiene, el color de marca (con un icono encima). */
+const imgStyle = (url: string | null) => (url ? { backgroundImage: `url("${url}")` } : undefined);
+
+/** Precio o estado de venta de un evento. */
+function priceLabel(e: ShopEvent) {
+  if (e.soldOut) return <span style={{ color: "var(--danger)" }}>Agotado</span>;
+  if (!e.salesOpen) return <span style={{ color: "var(--warn)" }}>{e.salesMessage}</span>;
+  if (e.allFree) return "Gratis";
+  if (e.fromCents != null) return `Desde ${euros(e.fromCents)}`;
+  return null;
+}
+
+/**
+ * Cartelera del promotor: evento destacado (el próximo a la venta), filtros en botones y
+ * rejilla de carteles. Todo en el navegador: un promotor tiene pocos eventos a la vez.
+ */
+export default function EventsBrowser({ slug, events, past }: { slug: string; events: ShopEvent[]; past: PastEvent[] }) {
   const [q, setQ] = useState("");
   const [category, setCategory] = useState<string | null>(null);
   const [city, setCity] = useState<string | null>(null);
@@ -66,6 +82,7 @@ export default function EventsBrowser({
 
   const now = new Date();
   const query = norm(q.trim());
+  const filtering = !!(query || category || city || when !== "all");
   const shown = events.filter(
     (e) =>
       (!category || e.category === category) &&
@@ -73,171 +90,135 @@ export default function EventsBrowser({
       matchesWhen(e, when, now) &&
       (!query || norm([e.name, e.summary, e.venueName, e.venueCity].filter(Boolean).join(" ")).includes(query)),
   );
-  const filtering = !!(query || category || city || when !== "all");
+  // Destacado: el próximo que se puede comprar (solo sin filtros, para no esconder resultados).
+  const featured = filtering ? null : (events.find((e) => e.salesOpen && !e.soldOut && e.startsAt) ?? null);
+  const grid = featured ? shown.filter((e) => e.id !== featured.id) : shown;
+
+  const reset = () => {
+    setQ("");
+    setCategory(null);
+    setCity(null);
+    setWhen("all");
+  };
 
   return (
     <div>
+      {featured && (
+        <Link href={`/${slug}/event/${featured.id}`} className="featured">
+          <div className={`featured-img ${featured.imageUrl ? "" : "no-img"}`} style={imgStyle(featured.imageUrl)}>
+            {!featured.imageUrl && <Ticket size={44} />}
+          </div>
+          <div className="featured-body">
+            <span className="badge-soft">
+              <Star size={14} /> Próximo evento
+            </span>
+            <h3>{featured.name}</h3>
+            {featured.summary && <p style={{ margin: 0, color: "var(--muted)" }}>{featured.summary}</p>}
+            <span className="ev-fact" style={{ fontSize: 15 }}>
+              <Calendar size={17} /> {formatDate(featured.startsAt, featured.timezone, { long: true })}
+            </span>
+            {featured.venueName && (
+              <span className="ev-fact" style={{ fontSize: 15 }}>
+                <MapPin size={17} /> {[featured.venueName, featured.venueCity].filter(Boolean).join(" · ")}
+              </span>
+            )}
+            <span className="ev-card-price" style={{ fontSize: 16 }}>{priceLabel(featured)}</span>
+            <span className="btn-primary">Comprar entradas</span>
+          </div>
+        </Link>
+      )}
+
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
-        <h2 style={{ margin: 0 }}>Próximos eventos</h2>
-        <span style={{ fontSize: 13, opacity: 0.6 }}>
-          {filtering ? `${shown.length} de ${events.length}` : `${events.length} evento(s)`}
+        <h2 style={{ margin: 0, fontSize: 22 }}>{featured ? "Toda la cartelera" : "Próximos eventos"}</h2>
+        <span style={{ fontSize: 13, color: "var(--faint)" }}>
+          {filtering ? `${shown.length} de ${events.length}` : `${events.length} evento${events.length === 1 ? "" : "s"}`}
         </span>
       </div>
 
-      {events.length > 0 && (
-        <div style={{ display: "grid", gap: 10, margin: "14px 0 18px" }}>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Buscar evento, artista, sala…"
-              aria-label="Buscar"
-              style={{
-                flex: 1,
-                minWidth: 200,
-                padding: "10px 12px",
-                borderRadius: 8,
-                border: "1px solid var(--border)",
-                background: "var(--surface)",
-                color: "var(--text)",
-                fontSize: 15,
-              }}
-            />
-            <select
-              value={when}
-              onChange={(e) => setWhen(e.target.value as When)}
-              aria-label="Fecha"
-              style={{
-                padding: "10px 12px",
-                borderRadius: 8,
-                border: "1px solid var(--border)",
-                background: "var(--surface)",
-                color: "var(--text)",
-                fontSize: 15,
-              }}
-            >
-              {(Object.keys(WHEN_LABEL) as When[]).map((w) => (
-                <option key={w} value={w}>
-                  {WHEN_LABEL[w]}
-                </option>
-              ))}
-            </select>
+      {events.length > 1 && (
+        <div className="toolbar">
+          <label className="search">
+            <Search size={17} />
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar evento, artista, sala…" aria-label="Buscar" />
+          </label>
+          <div className="chips" role="group" aria-label="Fecha">
+            {(Object.keys(WHEN_LABEL) as When[]).map((w) => (
+              <button key={w} className="chip" aria-pressed={when === w} onClick={() => setWhen(w)}>
+                {WHEN_LABEL[w]}
+              </button>
+            ))}
           </div>
           {(categories.length > 1 || cities.length > 1) && (
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {categories.length > 1 && (
-                <>
-                  <Chip active={!category} accent={accent} onClick={() => setCategory(null)}>
-                    Todo
-                  </Chip>
-                  {categories.map((c) => (
-                    <Chip key={c} active={category === c} accent={accent} onClick={() => setCategory(category === c ? null : c)}>
-                      {c}
-                    </Chip>
-                  ))}
-                </>
-              )}
-              {cities.length > 1 && (
-                <>
-                  <span style={{ width: 12 }} />
-                  {cities.map((c) => (
-                    <Chip key={c} active={city === c} accent={accent} onClick={() => setCity(city === c ? null : c)}>
-                      📍 {c}
-                    </Chip>
-                  ))}
-                </>
-              )}
+            <div className="chips">
+              {categories.length > 1 &&
+                categories.map((c) => (
+                  <button key={c} className="chip" aria-pressed={category === c} onClick={() => setCategory(category === c ? null : c)}>
+                    {c}
+                  </button>
+                ))}
+              {cities.length > 1 &&
+                cities.map((c) => (
+                  <button key={c} className="chip" aria-pressed={city === c} onClick={() => setCity(city === c ? null : c)}>
+                    <MapPin size={13} /> {c}
+                  </button>
+                ))}
             </div>
           )}
         </div>
       )}
 
-      {events.length === 0 && <p style={{ opacity: 0.7 }}>No hay eventos a la venta ahora mismo.</p>}
+      {events.length === 0 && <p style={{ color: "var(--muted)" }}>No hay eventos a la venta ahora mismo.</p>}
       {events.length > 0 && shown.length === 0 && (
-        <p style={{ opacity: 0.7 }}>
+        <p style={{ color: "var(--muted)" }}>
           Ningún evento coincide con la búsqueda.{" "}
-          <button
-            onClick={() => {
-              setQ("");
-              setCategory(null);
-              setCity(null);
-              setWhen("all");
-            }}
-            style={{ background: "none", border: "none", color: accent, cursor: "pointer", fontSize: 15, padding: 0 }}
-          >
+          <button className="btn-link" onClick={reset}>
             Quitar filtros
           </button>
         </p>
       )}
 
-      <div style={{ display: "grid", gap: 14 }}>
-        {shown.map((e) => (
-          <Link
-            key={e.id}
-            href={`/${slug}/event/${e.id}`}
-            style={{
-              display: "flex",
-              gap: 16,
-              background: "var(--surface)",
-              borderRadius: 12,
-              overflow: "hidden",
-              color: "inherit",
-              textDecoration: "none",
-              border: "1px solid var(--border)",
-            }}
-          >
-            <div
-              style={{
-                width: 150,
-                minHeight: 110,
-                flexShrink: 0,
-                background: e.imageUrl ? `center/cover url("${e.imageUrl}")` : `linear-gradient(135deg, ${accent}44, var(--stage-to))`,
-              }}
-            />
-            <div style={{ padding: "14px 16px 14px 0", display: "grid", gap: 4, alignContent: "center" }}>
-              <span style={{ fontSize: 12, color: accent, textTransform: "uppercase", letterSpacing: 1 }}>
-                {formatDate(e.startsAt, e.timezone)}
-                {e.category && <span style={{ opacity: 0.7 }}> · {e.category}</span>}
-              </span>
-              <strong style={{ fontSize: 18 }}>{e.name}</strong>
-              {e.summary && <span style={{ fontSize: 14, opacity: 0.75 }}>{e.summary}</span>}
-              <span style={{ fontSize: 13, opacity: 0.7 }}>{[e.venueName, e.venueCity].filter(Boolean).join(" · ")}</span>
-              <span style={{ fontSize: 14, fontWeight: 600, marginTop: 2 }}>
-                {e.soldOut ? (
-                  <span style={{ color: "var(--danger)" }}>Agotado</span>
-                ) : !e.salesOpen ? (
-                  <span style={{ color: "var(--warn)" }}>{e.salesMessage}</span>
-                ) : e.allFree ? (
-                  "Gratis"
-                ) : e.fromCents != null ? (
-                  `Desde ${euros(e.fromCents)}`
-                ) : null}
-              </span>
-            </div>
-          </Link>
-        ))}
-      </div>
+      {grid.length > 0 && (
+        <div className="ev-cards" style={{ marginTop: events.length > 1 ? 0 : 16 }}>
+          {grid.map((e) => {
+            const dm = dayMonth(e.startsAt, e.timezone);
+            return (
+              <Link key={e.id} href={`/${slug}/event/${e.id}`} className="ev-card">
+                <div className={`ev-card-img ${e.imageUrl ? "" : "no-img"}`} style={imgStyle(e.imageUrl)}>
+                  {!e.imageUrl && <Ticket size={36} />}
+                  {dm && (
+                    <span className="date-badge">
+                      <b>{dm.day}</b>
+                      <span>{dm.month}</span>
+                    </span>
+                  )}
+                  {e.soldOut && <span className="ribbon out">Agotado</span>}
+                </div>
+                <div className="ev-card-body">
+                  {e.category && <span className="badge-soft" style={{ fontSize: 11 }}>{e.category}</span>}
+                  <strong>{e.name}</strong>
+                  <span className="ev-card-meta">{formatDate(e.startsAt, e.timezone)}</span>
+                  {e.venueName && <span className="ev-card-meta">{[e.venueName, e.venueCity].filter(Boolean).join(" · ")}</span>}
+                  {!e.soldOut && <span className="ev-card-price">{priceLabel(e)}</span>}
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      )}
 
       {past.length > 0 && (
-        <section style={{ marginTop: 40 }}>
-          <h2 style={{ fontSize: 18, opacity: 0.8 }}>Eventos pasados</h2>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 12 }}>
+        <section style={{ marginTop: 44 }}>
+          <h2 style={{ fontSize: 18, margin: "0 0 12px", color: "var(--muted)" }}>Eventos pasados</h2>
+          <div className="past">
             {past.map((e) => (
-              <div
-                key={e.id}
-                style={{ background: "var(--surface)", borderRadius: 10, overflow: "hidden", border: "1px solid var(--border)", opacity: 0.75 }}
-              >
-                <div
-                  style={{
-                    height: 90,
-                    background: e.imageUrl ? `center/cover url("${e.imageUrl}")` : "linear-gradient(135deg,var(--stage-from),var(--stage-to))",
-                    filter: "grayscale(0.6)",
-                  }}
-                />
-                <div style={{ padding: "10px 12px", display: "grid", gap: 2 }}>
-                  <span style={{ fontSize: 12, opacity: 0.7 }}>{formatDate(e.startsAt, e.timezone)}</span>
+              <div key={e.id} className="ev-card" style={{ cursor: "default" }}>
+                <div className={`ev-card-img ${e.imageUrl ? "" : "no-img"}`} style={imgStyle(e.imageUrl)} />
+                <div className="ev-card-body">
+                  <span className="ev-card-meta" style={{ fontSize: 12 }}>
+                    {formatDate(e.startsAt, e.timezone)}
+                  </span>
                   <strong style={{ fontSize: 14 }}>{e.name}</strong>
-                  <span style={{ fontSize: 12, opacity: 0.6 }}>{[e.venueName, e.venueCity].filter(Boolean).join(" · ")}</span>
+                  {e.venueName && <span className="ev-card-meta" style={{ fontSize: 12 }}>{e.venueName}</span>}
                 </div>
               </div>
             ))}
@@ -245,35 +226,5 @@ export default function EventsBrowser({
         </section>
       )}
     </div>
-  );
-}
-
-function Chip({
-  active,
-  accent,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  accent: string;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      aria-pressed={active}
-      style={{
-        padding: "6px 12px",
-        borderRadius: 999,
-        border: `1px solid ${active ? accent : "var(--border)"}`,
-        background: active ? `${accent}22` : "transparent",
-        color: active ? accent : "var(--text)",
-        cursor: "pointer",
-        fontSize: 13,
-      }}
-    >
-      {children}
-    </button>
   );
 }

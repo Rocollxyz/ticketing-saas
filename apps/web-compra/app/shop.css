@@ -167,3 +167,69 @@ a { color: var(--accent); }
   .mobile-bar.hidden { display: none; }
   .mobile-bar .btn-primary { width: auto; flex: none; padding: 12px 20px; }
 }
+
+/* ─── Página del promotor ─────────────────────────────────────────── */
+
+.pr-cover { height: 260px; border-radius: var(--radius); background-size: cover; background-position: center; border: 1px solid var(--border); }
+.pr-id { display: flex; gap: 20px; align-items: flex-end; margin: -56px 0 28px; padding: 0 28px; }
+.pr-logo { width: 120px; height: 120px; flex: none; border-radius: 22px; border: 5px solid var(--bg); display: grid; place-items: center; font-size: 46px; font-weight: 700; background-size: cover; background-position: center; box-shadow: var(--shadow); }
+.pr-name { font-size: clamp(26px, 3.6vw, 38px); margin: 0; letter-spacing: -0.4px; line-height: 1.1; }
+.pr-sub { color: var(--muted); margin: 6px 0 0; font-size: 16px; }
+
+.pr-grid { display: grid; gap: 32px; grid-template-columns: minmax(0, 1fr) 320px; align-items: start; }
+.pr-aside { position: sticky; top: 16px; display: grid; gap: 14px; }
+.pr-links { display: grid; gap: 8px; }
+.pr-link { display: flex; align-items: center; gap: 10px; color: var(--text); text-decoration: none; font-size: 14px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--border); }
+.pr-link:hover { border-color: var(--accent); }
+.pr-link svg { color: var(--accent); flex: none; }
+
+/* Evento destacado. */
+.featured { display: grid; grid-template-columns: 260px 1fr; gap: 24px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; color: inherit; text-decoration: none; box-shadow: var(--shadow); margin-bottom: 28px; }
+.featured-img { min-height: 260px; background-size: cover; background-position: center; background-color: var(--surface-2); }
+.featured-body { padding: 24px 24px 24px 0; display: grid; gap: 8px; align-content: center; }
+.featured-body h3 { font-size: clamp(22px, 2.6vw, 30px); margin: 0; letter-spacing: -0.3px; }
+.featured-body .btn-primary { width: auto; justify-self: start; padding: 12px 22px; margin-top: 6px; }
+.badge-soft { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; letter-spacing: 0.8px; text-transform: uppercase; color: var(--accent); }
+
+/* Filtros. */
+.toolbar { display: grid; gap: 10px; margin: 14px 0 20px; }
+.search { display: flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); }
+.search svg { color: var(--faint); flex: none; }
+.search input { flex: 1; min-width: 0; padding: 11px 0; border: none; outline: none; background: none; color: var(--text); font: inherit; font-size: 15px; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 7px 13px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; font-size: 13px; font-family: inherit; }
+.chip[aria-pressed="true"] { border-color: var(--accent); background: var(--selected); color: var(--accent); font-weight: 600; }
+
+/* Rejilla de carteles. */
+.ev-cards { display: grid; gap: 18px; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+.ev-card { display: grid; grid-template-rows: auto 1fr; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; color: inherit; text-decoration: none; transition: transform 0.15s, box-shadow 0.15s; }
+.ev-card:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
+.ev-card-img { position: relative; aspect-ratio: 4 / 5; background-size: cover; background-position: center; background-color: var(--surface-2); }
+.ev-card-body { padding: 12px 14px 14px; display: grid; gap: 4px; align-content: start; }
+.ev-card-body strong { font-size: 16px; line-height: 1.25; }
+.ev-card-meta { font-size: 13px; color: var(--muted); }
+.ev-card-price { font-size: 14px; font-weight: 600; margin-top: 4px; }
+.date-badge { position: absolute; top: 10px; left: 10px; background: var(--surface); color: var(--text); border-radius: 10px; padding: 6px 9px; text-align: center; line-height: 1; box-shadow: 0 4px 14px #0003; }
+.date-badge b { display: block; font-size: 20px; }
+.date-badge span { font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--accent); font-weight: 700; }
+.ribbon { position: absolute; bottom: 10px; left: 10px; padding: 4px 9px; border-radius: 999px; font-size: 12px; font-weight: 700; }
+.ribbon.out { background: var(--danger); color: #fff; }
+.ribbon.few { background: var(--warn); color: #fff; }
+
+.no-img { display: grid; place-items: center; color: var(--accent-ink); background-image: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 45%, #000)); }
+.no-img svg { opacity: 0.85; }
+
+.past { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+.past .ev-card-img { aspect-ratio: 16 / 10; filter: grayscale(0.7); opacity: 0.85; }
+
+@media (max-width: 900px) {
+  .pr-cover { height: 160px; }
+  .pr-id { margin-top: -44px; padding: 0 12px; gap: 10px; flex-direction: column; align-items: flex-start; }
+  .pr-logo { width: 88px; height: 88px; font-size: 34px; border-radius: 18px; }
+  .pr-grid { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+  .pr-aside { position: static; }
+  .featured { grid-template-columns: 1fr; gap: 0; }
+  .featured-img { min-height: 0; aspect-ratio: 16 / 10; }
+  .featured-body { padding: 18px; }
+  .ev-cards { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+}
