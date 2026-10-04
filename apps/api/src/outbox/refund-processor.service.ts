@@ -5,6 +5,9 @@ import { AdminDb } from "../database/admin-db.service";
 import { PaymentRegistry } from "../payments/payment-registry";
 import { EMAIL_PROVIDER, type EmailProvider } from "./email-provider";
 
+/** Marca de «devolución enviada, respuesta pendiente» (pasarelas sin idempotencia). */
+export const SENDING = "sending";
+
 const euros = (c: number) => (c / 100).toLocaleString("es-ES", { style: "currency", currency: "EUR" });
 
 /**
@@ -32,11 +35,26 @@ export class RefundProcessorService {
     if (!r || r.status !== "PENDING") return; // ya procesada (o reintento duplicado)
     const [pay] = r.paymentId ? await db.select().from(schema.payment).where(eq(schema.payment.id, r.paymentId)) : [];
 
-    const fail = (error: string) =>
-      db.update(schema.refund).set({ status: "FAILED", error, updatedAt: new Date() }).where(eq(schema.refund.id, r.id));
+    // `cleared`: rechazo cierto (no se devolvió nada) → fuera la marca de envío.
+    const fail = (error: string, cleared = false) =>
+      db
+        .update(schema.refund)
+        .set({ status: "FAILED", error, updatedAt: new Date(), ...(cleared ? { providerRef: null } : {}) })
+        .where(eq(schema.refund.id, r.id));
     if (!pay?.providerRef) return fail("El pedido no tiene un cobro online");
     const provider = this.payments.get(pay.provider);
     if (!provider) return fail(`La pasarela ${pay.provider} no está configurada`);
+
+    // Pasarela sin idempotencia: se deja marca ANTES de llamar. Si al reintentar la marca
+    // sigue ahí, la devolución pudo hacerse: no se reenvía (mejor revisar que pagar dos veces).
+    if (!provider.idempotentRefunds) {
+      if (r.providerRef === SENDING) {
+        return fail(
+          "Se envió a la pasarela pero no consta la respuesta: comprueba en su panel si se devolvió antes de reintentar",
+        );
+      }
+      await db.update(schema.refund).set({ providerRef: SENDING }).where(eq(schema.refund.id, r.id));
+    }
 
     let result;
     try {
@@ -44,9 +62,14 @@ export class RefundProcessorService {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       this.logger.error(`devolución ${r.id} falló: ${msg}`);
-      return fail(msg.slice(0, 500));
+      // Sin respuesta clara: en una pasarela sin idempotencia pudo llegar a devolverse.
+      return fail(
+        provider.idempotentRefunds
+          ? msg.slice(0, 500)
+          : `No consta la respuesta de la pasarela (${msg.slice(0, 200)}): comprueba en su panel si se devolvió antes de reintentar`,
+      );
     }
-    if (result.status === "failed") return fail("La pasarela ha rechazado la devolución");
+    if (result.status === "failed") return fail(result.reason ?? "La pasarela ha rechazado la devolución", true);
 
     // "pending" (Stripe la completa en segundo plano) se da por hecha: casi nunca falla
     // después. Ver hueco en PENDIENTES (seguimiento por webhook).

@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { schema } from "@ticketing/database";
 import { and, eq, inArray, ne, sql } from "drizzle-orm";
-import { currentPriceCents, qualified, seatTaken } from "../catalog/pricing";
+import { currentPriceCents, qualified, seatSold, seatTaken } from "../catalog/pricing";
 import { eventSalesState, SALES_REASON_TEXT, ticketTypeSalesState } from "../catalog/sales-rules";
 import { seatLabel } from "../catalog/seat-label";
 import { AdminDb } from "../database/admin-db.service";
@@ -249,6 +249,7 @@ export class StorefrontService {
             isGeneral: schema.seat.isGeneral,
             ticketTypeId: schema.seat.ticketTypeId,
             ocupado: seatTaken(schema.seat.id),
+            vendido: seatSold(schema.seat.id),
           })
           .from(schema.seat)
           .where(eq(schema.seat.eventId, eventId));
@@ -339,6 +340,7 @@ export class StorefrontService {
                       categoria: t?.name ?? null,
                       precioCents: t?.precioCents ?? null,
                       disponible: !s.ocupado && !!t,
+                      vendido: s.vendido,
                     };
                   })
               : [],

@@ -114,9 +114,12 @@ export class EventsService {
       .from(schema.event)
       .where(eq(schema.event.id, eventId));
 
+    const [tn] = await tx.select({ regime: schema.tenant.taxRegime }).from(schema.tenant);
     return {
       event: ev,
       venue: venue ?? null,
+      // Nombre del impuesto del promotor (IVA o IGIC en Canarias) para la consola.
+      taxName: tn?.regime === "IGIC" ? "IGIC" : "IVA",
       ticketTypes: types.map(({ tt, currentCents, seats, sold }) => {
         const mine = prices.filter((p) => p.ticketTypeId === tt.id);
         const regular = mine.find((p) => p.validTo == null);

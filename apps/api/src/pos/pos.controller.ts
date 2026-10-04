@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Param, Post } from "@nestjs/common";
+import { parseBilling } from "../billing/billing.service";
 import { type PosMethod, PosService } from "./pos.service";
 
 /**
@@ -28,6 +29,8 @@ export class PosController {
       quantities?: Record<string, number>;
       method: PosMethod;
       buyerEmail?: string;
+      attendees?: unknown;
+      billing?: unknown;
     },
   ) {
     return this.pos.sell(
@@ -35,6 +38,7 @@ export class PosController {
       { seatIds: body.seatIds, quantities: body.quantities },
       body.method,
       body.buyerEmail,
+      { attendees: body.attendees, billing: body.billing == null ? null : parseBilling(body.billing) },
     );
   }
 }

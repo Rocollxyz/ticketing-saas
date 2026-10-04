@@ -435,8 +435,9 @@ function TicketDetail({
           onVoid={(release, reason, refund) =>
             run(async () => {
               const r = await voidTicket(token, eventId, t.id, { release, reason, ...refund });
+              const what = r.voided > 1 ? `${r.voided} entradas anuladas` : "Entrada anulada";
               return (
-                (release ? "Entrada anulada y plaza de nuevo a la venta." : "Entrada anulada (la plaza sigue bloqueada).") +
+                (release ? `${what}; plazas de nuevo a la venta.` : `${what} (las plazas siguen bloqueadas).`) +
                 (r.refund ? ` ${REFUND_TEXT[r.refund.status](euros(r.refund.amountCents))}` : "")
               );
             })
@@ -648,7 +649,7 @@ function RefundFields({
             inputMode="decimal"
             value={amount}
             onChange={(e) => onAmount(e.target.value)}
-            placeholder={t.priceCents == null ? "Calculado: parte proporcional del pedido" : undefined}
+            placeholder={amount === "" ? "Lo pagado (lo calcula el sistema)" : undefined}
             style={{ maxWidth: 200 }}
           />
           <span className="hint">
@@ -679,7 +680,11 @@ function VoidForm({
 }: {
   ticket: IssuedTicketRow;
   busy: boolean;
-  onVoid: (release: boolean, reason: string | undefined, refund: { refund: boolean; refundCents?: number }) => void;
+  onVoid: (
+    release: boolean,
+    reason: string | undefined,
+    refund: { refund: boolean; refundCents?: number; wholeOrder: boolean },
+  ) => void;
   onCancel: () => void;
 }) {
   const refundable = canRefund(t);
@@ -687,6 +692,7 @@ function VoidForm({
   const [reason, setReason] = useState("");
   const [refund, setRefund] = useState(refundable);
   const [amount, setAmount] = useState(centsToInput(t.priceCents));
+  const [whole, setWhole] = useState(false);
   const [error, setError] = useState<string | null>(null);
   return (
     <form
@@ -696,17 +702,31 @@ function VoidForm({
         e.preventDefault();
         const cents = refund ? toCents(amount) : undefined;
         if (cents === null) return setError("Importe no válido");
-        onVoid(release, reason.trim() || undefined, { refund: refund && refundable, refundCents: cents });
+        onVoid(release, reason.trim() || undefined, { refund: refund && refundable, refundCents: cents, wholeOrder: whole });
       }}
     >
-      <strong>Anular la entrada {t.seat}</strong>
+      <strong>{whole ? `Anular el pedido entero (${t.orderLive} entradas)` : `Anular la entrada ${t.seat}`}</strong>
       <span className="muted" style={{ fontSize: 14 }}>
         Dejará de valer en el acceso (también sin conexión, al refrescar la app). No se puede deshacer.
         {t.status === "CHECKED_IN" && " Ojo: esta entrada ya se usó para entrar."}
       </span>
+      {t.orderLive > 1 && (
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={whole}
+            onChange={(e) => {
+              setWhole(e.target.checked);
+              // Pedido entero: por defecto, lo pagado por todas sus entradas (lo calcula la API).
+              setAmount(e.target.checked ? "" : centsToInput(t.priceCents));
+            }}
+          />{" "}
+          Todo el pedido ({t.orderLive} entradas)
+        </label>
+      )}
       <label className="check">
-        <input type="checkbox" checked={release} onChange={(e) => setRelease(e.target.checked)} /> Volver a poner la
-        plaza a la venta
+        <input type="checkbox" checked={release} onChange={(e) => setRelease(e.target.checked)} /> Volver a poner{" "}
+        {whole ? "las plazas" : "la plaza"} a la venta
       </label>
       {refundable && (
         <RefundFields

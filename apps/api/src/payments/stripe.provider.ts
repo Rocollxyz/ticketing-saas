@@ -15,6 +15,7 @@ import {
  */
 export class StripeProvider implements PaymentProvider {
   readonly name = "stripe";
+  readonly idempotentRefunds = true;
   private readonly stripe: Stripe;
   private readonly webhookSecret: string;
 
@@ -96,6 +97,13 @@ export class StripeProvider implements PaymentProvider {
             : "payment_failed",
         providerRef: intent.id,
       };
+    }
+    // Devolución que falla después de darse por hecha (p. ej. tarjeta cancelada).
+    if (event.type === "refund.failed" || event.type === "refund.updated" || event.type === "charge.refund.updated") {
+      const refund = event.data.object as Stripe.Refund;
+      if (refund.status === "failed") {
+        return { id: event.id, type: "refund_failed", providerRef: refund.id, reason: refund.failure_reason ?? undefined };
+      }
     }
     return { id: event.id, type: "other", providerRef: "" };
   }

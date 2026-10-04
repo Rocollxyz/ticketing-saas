@@ -29,8 +29,10 @@ export interface CreateIntentResult {
 export interface PaymentWebhookEvent {
   /** id del evento en el proveedor — clave de idempotencia (§4). */
   id: string;
-  type: "payment_succeeded" | "payment_failed" | "other";
+  /** refund_failed: una devolución que se dio por hecha falló después (providerRef = la devolución). */
+  type: "payment_succeeded" | "payment_failed" | "refund_failed" | "other";
   providerRef: string;
+  reason?: string;
   /** Importe cobrado según la pasarela, para comprobar que cuadra con el pedido. */
   amountCents?: number;
 }
@@ -45,11 +47,18 @@ export type CancelOutcome = "canceled" | "succeeded" | "processing";
 /** Resultado de pedir una devolución. "pending": la pasarela la completará más tarde. */
 export interface RefundResult {
   providerRef: string;
+  /** failed = rechazo CIERTO (no se devolvió nada). Un resultado desconocido se lanza como error. */
   status: "succeeded" | "pending" | "failed";
+  reason?: string;
 }
 
 export interface PaymentProvider {
   readonly name: string;
+  /**
+   * ¿Acepta clave de idempotencia en las devoluciones? Si no (Redsys), quien devuelve
+   * debe evitar por su cuenta reenviar una devolución que pudo llegar a hacerse.
+   */
+  readonly idempotentRefunds: boolean;
   createIntent(args: CreateIntentArgs): Promise<CreateIntentResult>;
   /** Cancela el cobro si aún no se ha completado (al caducar o liberar la reserva). */
   cancelIntent(providerRef: string): Promise<CancelOutcome>;

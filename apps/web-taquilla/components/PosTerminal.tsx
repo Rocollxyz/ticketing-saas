@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { euros, getSeats, type PosSeat, type PosSeatmap, sell, type SaleResult } from "../lib/api";
+import SaleDetails, { EMPTY_BILLING, fieldsFor, missingRequired, type Slot, type SlotValues } from "./SaleDetails";
 
 export default function PosTerminal({
   token,
@@ -23,6 +24,9 @@ export default function PosTerminal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sale, setSale] = useState<SaleResult | null>(null);
+  const [values, setValues] = useState<SlotValues>({});
+  const [invoice, setInvoice] = useState(false);
+  const [billing, setBilling] = useState(EMPTY_BILLING);
 
   async function reload() {
     setError(null);
@@ -46,6 +50,27 @@ export default function PosTerminal({
     ? (map?.ticketTypes ?? []).reduce((a, t) => a + (qty[t.id] ?? 0) * (t.precioCents ?? 0), 0)
     : seats.filter((s) => selected.has(s.id)).reduce((a, s) => a + (s.precioCents ?? 0), 0);
 
+  // Plazas de la venta en curso (para pedir los datos de cada asistente).
+  const fields = map?.attendeeFields ?? [];
+  const slots: Slot[] = general
+    ? (map?.ticketTypes ?? []).flatMap((t) =>
+        Array.from({ length: qty[t.id] ?? 0 }, (_, i) => ({
+          key: `${t.id}:${i}`,
+          label: `${t.name} #${i + 1}`,
+          ticketTypeId: t.id,
+          fields: fieldsFor(fields, t.id),
+        })),
+      )
+    : seats
+        .filter((s) => selected.has(s.id))
+        .map((s) => ({
+          key: s.id,
+          label: `Asiento ${s.fila}${s.numero}`,
+          seatId: s.id,
+          ticketTypeId: s.ticketTypeId,
+          fields: fieldsFor(fields, s.ticketTypeId),
+        }));
+
   function toggle(s: PosSeat) {
     if (!s.disponible) return;
     setSelected((prev) => {
@@ -56,6 +81,11 @@ export default function PosTerminal({
   }
 
   async function cobrar() {
+    const missing = missingRequired(slots, values);
+    if (missing) return setError(missing);
+    if (invoice && Object.values(billing).some((v) => !v.trim())) {
+      return setError("Factura completa: rellena todos los datos de facturación");
+    }
     setBusy(true);
     setError(null);
     try {
@@ -67,10 +97,19 @@ export default function PosTerminal({
           : { seatIds: [...selected] },
         method,
         email,
+        {
+          attendees: slots
+            .filter((s) => s.fields.length)
+            .map((s) => ({ seatId: s.seatId, ticketTypeId: s.ticketTypeId, values: values[s.key] ?? {} })),
+          billing: invoice ? billing : undefined,
+        },
       );
       setSale(res);
       setSelected(new Set());
       setQty({});
+      setValues({});
+      setInvoice(false);
+      setBilling(EMPTY_BILLING);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       await reload();
@@ -110,6 +149,7 @@ export default function PosTerminal({
               <div style={{ fontWeight: 700, fontSize: 16, color: "#111" }}>{eventName}</div>
               <div style={{ fontSize: 14, color: "#333", margin: "4px 0 10px" }}>
                 {general ? t.seat : `Asiento ${t.seat}`}
+                {t.attendeeName && <div style={{ fontWeight: 600, color: "#111" }}>{t.attendeeName}</div>}
               </div>
               <QRCodeSVG value={t.qr} size={150} />
               <div style={{ fontSize: 9, color: "#888", marginTop: 8 }}>{t.ticketId}</div>
@@ -202,6 +242,18 @@ export default function PosTerminal({
             💳 Tarjeta (datáfono)
           </button>
         </div>
+        {count > 0 && (
+          <SaleDetails
+            slots={slots}
+            values={values}
+            onValues={setValues}
+            invoice={invoice}
+            onInvoice={setInvoice}
+            billing={billing}
+            onBilling={setBilling}
+            totalCents={total}
+          />
+        )}
         <input
           value={email}
           onChange={(e) => setEmail(e.target.value)}

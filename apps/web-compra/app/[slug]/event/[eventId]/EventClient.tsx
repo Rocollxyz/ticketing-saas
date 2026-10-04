@@ -84,7 +84,9 @@ export default function EventClient({ slug, detail: initial }: { slug: string; d
   const [unavailable, setUnavailable] = useState<Set<string>>(
     () => new Set(initial.seats.filter((s) => !s.disponible).map((s) => s.id)),
   );
-  const [sold, setSold] = useState<Set<string>>(new Set());
+  const [sold, setSold] = useState<Set<string>>(
+    () => new Set(initial.seats.filter((s) => s.vendido).map((s) => s.id)),
+  );
 
   // Entrada general: las plazas concretas no se muestran; ante cualquier cambio se
   // recarga la disponibilidad por categoría (agrupado para no saturar).

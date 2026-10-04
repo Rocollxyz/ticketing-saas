@@ -17,6 +17,7 @@ import {
  */
 export class FakeProvider implements PaymentProvider {
   readonly name = "fake";
+  readonly idempotentRefunds = true;
   private readonly secret = process.env.FAKE_WEBHOOK_SECRET ?? "fake-webhook-secret";
 
   async createIntent(args: CreateIntentArgs): Promise<CreateIntentResult> {

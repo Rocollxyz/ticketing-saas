@@ -29,6 +29,8 @@ export interface ShopSeat {
   categoria: string | null;
   precioCents: number | null;
   disponible: boolean;
+  /** Vendido (no solo reservado por otro): para pintarlo como «vendido» desde el inicio. */
+  vendido?: boolean;
 }
 
 export interface ShopTicketType {

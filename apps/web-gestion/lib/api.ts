@@ -74,6 +74,7 @@ export interface TicketTypeData {
 
 export interface EventDetail {
   event: EventData;
+  taxName: "IVA" | "IGIC";
   venue: Venue | null;
   ticketTypes: TicketTypeData[];
   stats: { sold: number; revenueCents: number; capacity: number };
@@ -328,6 +329,8 @@ export interface IssuedTicketRow {
   /** Pagado por esta entrada (con descuento). null = vendida antes de guardarlo. */
   priceCents: number | null;
   refund: TicketRefund | null;
+  /** Entradas no anuladas de su pedido (para «anular todo el pedido»). */
+  orderLive: number;
 }
 
 export type RefundStatus = "PENDING" | "MANUAL" | "SUCCEEDED" | "FAILED";
@@ -383,9 +386,9 @@ export const voidTicket = (
   token: string,
   eventId: string,
   ticketId: string,
-  data: { release: boolean; reason?: string; refund?: boolean; refundCents?: number },
+  data: { release: boolean; reason?: string; refund?: boolean; refundCents?: number; wholeOrder?: boolean },
 ) =>
-  authed<{ ok: true; released: boolean; refund: { status: RefundStatus; amountCents: number } | null }>(
+  authed<{ ok: true; released: boolean; voided: number; refund: { status: RefundStatus; amountCents: number } | null }>(
     token,
     `/events/${eventId}/tickets/${ticketId}/void`,
     { method: "POST", body: JSON.stringify(data) },

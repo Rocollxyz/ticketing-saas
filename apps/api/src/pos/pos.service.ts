@@ -1,14 +1,19 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
-import { schema } from "@ticketing/database";
+import { type BillingData, schema } from "@ticketing/database";
 import { eq, inArray } from "drizzle-orm";
 import { currentPriceCents, seatTaken } from "../catalog/pricing";
 import { seatLabel } from "../catalog/seat-label";
 import { getStore } from "../database/tenant-context";
 import { TenantDb } from "../database/tenant-db.service";
 import { SEATS_SOLD, type SeatsSoldEvent } from "../realtime/seat-events";
+import { validateAttendees } from "../catalog/attendee";
+import { listTx as listFieldsTx } from "../events/attendee-fields.service";
+import { HoldReleaseService } from "../reservation/hold-release.service";
 import { ReservationService } from "../reservation/reservation.service";
 import { TPV_PROVIDER, type TpvProvider } from "./tpv.provider";
+
+type Tx = Parameters<Parameters<TenantDb["run"]>[0]>[0];
 
 const CURRENCY = process.env.CURRENCY ?? "EUR";
 const POS_ROLES = new Set(["taquillero", "promotor", "admin_saas"]);
@@ -26,6 +31,7 @@ export class PosService {
   constructor(
     private readonly db: TenantDb,
     private readonly reservation: ReservationService,
+    private readonly releaser: HoldReleaseService,
     private readonly emitter: EventEmitter2,
     @Inject(TPV_PROVIDER) private readonly tpv: TpvProvider,
   ) {}
@@ -101,6 +107,16 @@ export class PosService {
 
       return {
         event: ev,
+        // Formulario de asistentes del evento (el taquillero lo rellena al vender).
+        attendeeFields: (await listFieldsTx(tx, eventId)).map((f) => ({
+          id: f.id,
+          presetKey: f.presetKey,
+          label: f.label,
+          type: f.type,
+          required: f.required,
+          options: f.options,
+          ticketTypeIds: f.ticketTypeIds,
+        })),
         ticketTypes: types.map((t) => ({ ...t, disponibles: free.get(t.id) ?? 0 })),
         seats:
           ev.seatingMode === "RESERVED"
@@ -112,6 +128,7 @@ export class PosService {
                   numero: s.numero,
                   posX: s.posX,
                   posY: s.posY,
+                  ticketTypeId: s.ticketTypeId,
                   categoria: s.categoria,
                   precioCents: s.precioCents,
                   disponible: !s.ocupado,
@@ -130,6 +147,7 @@ export class PosService {
     selection: { seatIds?: string[]; quantities?: Record<string, number> },
     method: PosMethod,
     buyerEmail?: string,
+    extra: { attendees?: unknown; billing?: BillingData | null } = {},
   ) {
     this.assertRole();
     if (method !== "cash" && method !== "card") throw new BadRequestException("Método inválido");
@@ -141,8 +159,18 @@ export class PosService {
       ? await this.reservation.createHoldForQuantities(eventId, selection.quantities, actor, "pos")
       : await this.reservation.createHold(eventId, selection.seatIds ?? [], actor, "pos");
 
-    // 2) Precio real desde la BD (fuera de la tx de escritura).
-    const amountCents = await this.db.run((tx) => this.priceHoldTx(tx, holdId, seatIds.length));
+    // 2) Precio real desde la BD y datos de los asistentes (validados como online). Si algo
+    //    falla, se suelta la reserva: en taquilla no hay contador de tiempo que la libere pronto.
+    let amountCents: bigint;
+    try {
+      amountCents = await this.db.run(async (tx) => {
+        await this.attendeesTx(tx, eventId, holdId, extra.attendees);
+        return this.priceHoldTx(tx, holdId, seatIds.length);
+      });
+    } catch (e) {
+      await this.releaser.release(holdId, "RELEASED").catch(() => false);
+      throw e;
+    }
 
     // 3) Cobro presencial. Tarjeta → datáfono; efectivo → lo cobra el taquillero.
     //    Importe 0 (invitaciones/entradas gratuitas): no se cobra nada.
@@ -157,7 +185,7 @@ export class PosService {
     const result = await this.db.run(async (tx) => {
       const [o] = await tx
         .insert(schema.order)
-        .values({ tenantId, eventId, status: "PAID", buyerEmail })
+        .values({ tenantId, eventId, status: "PAID", buyerEmail, billing: extra.billing ?? null })
         .returning();
       await tx.insert(schema.payment).values({
         tenantId,
@@ -186,10 +214,20 @@ export class PosService {
         .leftJoin(schema.ticketType, eq(schema.ticketType.id, schema.seat.ticketTypeId))
         .where(inArray(schema.seat.id, seatIds));
       const labelOf = new Map(labels.map((l) => [l.id, seatLabel(l)]));
+      const names = await tx
+        .select({ id: schema.ticket.id, name: schema.ticket.attendeeName })
+        .from(schema.ticket)
+        .where(inArray(schema.ticket.id, tickets.map((t) => t.ticketId)));
+      const nameOf = new Map(names.map((n) => [n.id, n.name]));
 
       return {
         orderId: o.id,
-        tickets: tickets.map((t) => ({ ticketId: t.ticketId, seat: labelOf.get(t.seatId) ?? "?", qr: t.qr })),
+        tickets: tickets.map((t) => ({
+          ticketId: t.ticketId,
+          seat: labelOf.get(t.seatId) ?? "?",
+          attendeeName: nameOf.get(t.ticketId) ?? null,
+          qr: t.qr,
+        })),
       };
     });
 
@@ -204,6 +242,33 @@ export class PosService {
       providerRef,
       tickets: result.tickets,
     };
+  }
+
+  /**
+   * Datos de asistentes de la venta en mostrador: `attendees` = [{ seatId? , ticketTypeId?,
+   * values }]. En numerado se casan por asiento; en general, por orden dentro de cada
+   * categoría (el taquillero no ve qué plaza concreta tocó).
+   */
+  private async attendeesTx(tx: Tx, eventId: string, holdId: string, attendees: unknown) {
+    const fields = await listFieldsTx(tx, eventId);
+    if (!fields.length) return;
+    const seats = await tx
+      .select({ id: schema.holdSeat.id, seatId: schema.holdSeat.seatId, ticketTypeId: schema.seat.ticketTypeId })
+      .from(schema.holdSeat)
+      .innerJoin(schema.seat, eq(schema.seat.id, schema.holdSeat.seatId))
+      .where(eq(schema.holdSeat.holdId, holdId))
+      .orderBy(schema.seat.numero);
+    const list = (Array.isArray(attendees) ? attendees : []) as { seatId?: unknown; ticketTypeId?: unknown; values?: unknown }[];
+    const pending = [...list];
+    const bySeat = seats.map((s) => {
+      const i = pending.findIndex((a) => a.seatId === s.seatId || (!a.seatId && a.ticketTypeId === s.ticketTypeId));
+      const a = i >= 0 ? pending.splice(i, 1)[0] : undefined;
+      return { seatId: s.seatId, values: a?.values ?? {} };
+    });
+    const answers = validateAttendees(fields, seats, bySeat);
+    for (const s of seats) {
+      await tx.update(schema.holdSeat).set({ attendee: answers.get(s.seatId) ?? [] }).where(eq(schema.holdSeat.id, s.id));
+    }
   }
 
   private async priceHoldTx(

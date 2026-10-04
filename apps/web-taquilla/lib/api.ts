@@ -15,8 +15,27 @@ export interface PosTicketType {
   disponibles: number;
 }
 
+export interface PosAttendeeField {
+  id: string;
+  presetKey: string | null;
+  label: string;
+  type: "text" | "textarea" | "email" | "phone" | "number" | "select" | "checkbox" | "date" | "dni";
+  required: boolean;
+  options: string[] | null;
+  ticketTypeIds: string[] | null;
+}
+
+export interface BillingData {
+  name: string;
+  taxId: string;
+  address: string;
+  postalCode: string;
+  city: string;
+}
+
 export interface PosSeatmap {
   event: { id: string; name: string; seatingMode: "RESERVED" | "GENERAL" };
+  attendeeFields: PosAttendeeField[];
   ticketTypes: PosTicketType[];
   /** Solo en eventos numerados. */
   seats: PosSeat[];
@@ -28,6 +47,7 @@ export interface PosSeat {
   numero: number;
   posX: number | null;
   posY: number | null;
+  ticketTypeId: string | null;
   categoria: string | null;
   precioCents: number | null;
   disponible: boolean;
@@ -39,7 +59,7 @@ export interface SaleResult {
   amountCents: string;
   currency: string;
   providerRef: string;
-  tickets: { ticketId: string; seat: string; qr: string }[];
+  tickets: { ticketId: string; seat: string; attendeeName: string | null; qr: string }[];
 }
 
 async function authed<T>(token: string, path: string, init?: RequestInit): Promise<T> {
@@ -77,10 +97,16 @@ export const sell = (
   selection: { seatIds: string[] } | { quantities: Record<string, number> },
   method: "cash" | "card",
   buyerEmail?: string,
+  extra: {
+    /** Datos de cada entrada: por asiento (numerado) o por categoría en orden (general). */
+    attendees?: { seatId?: string; ticketTypeId: string | null; values: Record<string, string | boolean> }[];
+    /** Factura completa a nombre de empresa o autónomo. */
+    billing?: BillingData;
+  } = {},
 ) =>
   authed<SaleResult>(token, "/pos/sell", {
     method: "POST",
-    body: JSON.stringify({ eventId, ...selection, method, buyerEmail: buyerEmail || undefined }),
+    body: JSON.stringify({ eventId, ...selection, method, buyerEmail: buyerEmail || undefined, ...extra }),
   });
 
 export function euros(cents: number | null): string {

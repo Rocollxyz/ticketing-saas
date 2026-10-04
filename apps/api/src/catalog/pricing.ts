@@ -24,6 +24,12 @@ export const currentPriceCents = (ticketTypeId: AnyColumn) =>
     limit 1
   )`.mapWith(Number);
 
+/** ¿Está VENDIDO el asiento? (hold CONFIRMED: hay entrada emitida). */
+export const seatSold = (seatId: AnyColumn) =>
+  sql<boolean>`exists (
+    select 1 from hold_seat hs where hs.seat_id = ${qualified(seatId)} and hs.status = 'CONFIRMED'
+  )`;
+
 /**
  * ¿Está ocupado el asiento? Hold CONFIRMED (vendido) o ACTIVE aún no expirado. Misma
  * regla que el índice anti-sobreventa, pero sin depender de que el sweeper ya haya

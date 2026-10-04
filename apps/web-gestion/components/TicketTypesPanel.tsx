@@ -111,7 +111,9 @@ export default function TicketTypesPanel({
               {t.description && <span className="muted" style={{ fontSize: 13 }}>{t.description}</span>}
               <span className="faint">
                 {t.currentCents !== 0 &&
-                  (t.taxRateBp === 0 ? "Exenta · " : `IVA ${(t.taxRateBp / 100).toLocaleString("es-ES")} % incl. · `)}
+                  (t.taxRateBp === 0
+                    ? "Exenta · "
+                    : `${detail.taxName} ${(t.taxRateBp / 100).toLocaleString("es-ES")} % incl. · `)}
                 {t.sold} vendidas de {t.capacity} {general ? "(aforo)" : "asientos"}
                 {" · "}
                 {t.minPerOrder > 1 && `mín. ${t.minPerOrder} · `}

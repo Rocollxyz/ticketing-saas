@@ -7,7 +7,7 @@ import {
 } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { type AttendeeAnswer, schema } from "@ticketing/database";
-import { and, asc, desc, eq, type SQL, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, type SQL, sql } from "drizzle-orm";
 import { attendeeNameOf, type FieldDef, fieldsFor, validateAttendees } from "../catalog/attendee";
 import { formatInZone } from "../catalog/format";
 import { qualified, seatTaken } from "../catalog/pricing";
@@ -144,6 +144,9 @@ export class TicketsService {
         checkedInAt: checkedInAtSql,
         priceCents: schema.ticket.priceCents,
         refund: refundSql,
+        orderLive: sql<number>`(
+          select count(*) from ticket o where o.order_id = ${qualified(schema.ticket.orderId)} and o.status <> 'VOID'
+        )`.mapWith(Number),
         couponCode: sql<string | null>`(select c.code from coupon c where c.id = ${qualified(schema.order.couponId)})`,
       })
       .from(schema.ticket)
@@ -237,10 +240,18 @@ export class TicketsService {
     const result = await this.db.run(async (tx) => {
       const tk = await this.loadTicketTx(tx, eventId, ticketId, true);
       if (tk.status === "VOID") throw new ConflictException("La entrada ya está anulada");
-      await tx
-        .update(schema.ticket)
-        .set({ status: "VOID", updatedAt: new Date() })
-        .where(eq(schema.ticket.id, ticketId));
+      // Una entrada o, con `wholeOrder`, todas las que sigan vivas en su pedido.
+      const targets =
+        body.wholeOrder === true
+          ? await tx
+              .select({ id: schema.ticket.id, seatId: schema.ticket.seatId, status: schema.ticket.status })
+              .from(schema.ticket)
+              .where(and(eq(schema.ticket.orderId, tk.orderId), sql`${schema.ticket.status} <> 'VOID'`))
+              .for("update")
+          : [{ id: ticketId, seatId: tk.seatId, status: tk.status }];
+      const ids = targets.map((t) => t.id);
+      const seatIds = targets.map((t) => t.seatId);
+      await tx.update(schema.ticket).set({ status: "VOID", updatedAt: new Date() }).where(inArray(schema.ticket.id, ids));
       if (release) {
         // La plaza la retiene el hold_seat CONFIRMED del pedido (índice anti-sobreventa).
         await tx
@@ -249,7 +260,7 @@ export class TicketsService {
           .where(
             and(
               eq(schema.holdSeat.eventId, eventId),
-              eq(schema.holdSeat.seatId, tk.seatId),
+              inArray(schema.holdSeat.seatId, seatIds),
               eq(schema.holdSeat.status, "CONFIRMED"),
             ),
           );
@@ -260,29 +271,30 @@ export class TicketsService {
           ? await createRefundTx(tx, {
               tenantId: getStore()!.tenantId,
               orderId: tk.orderId,
-              ticketIds: [ticketId],
-              amountCents: refundCents ?? (await ticketsPaidTx(tx, tk.orderId, [ticketId])).paidCents,
+              ticketIds: ids,
+              amountCents: refundCents ?? (await ticketsPaidTx(tx, tk.orderId, ids)).paidCents,
               reason,
               createdBy: getStore()!.userId,
             })
           : null;
       await this.auditTx(tx, "ticket.voided", {
-        ticketId,
+        ticketIds: ids,
         orderId: tk.orderId,
-        previousStatus: tk.status,
+        previousStatus: targets.map((t) => t.status),
         released: release,
         reason,
         refundId: refund?.id ?? null,
         refundCents: refund?.amountCents ?? 0,
       });
-      return { seatId: tk.seatId, refund };
+      return { seatIds, refund, count: ids.length };
     });
     if (release) {
-      this.emitter.emit(SEATS_RELEASED, { eventId, seatIds: [result.seatId] } satisfies SeatsReleasedEvent);
+      this.emitter.emit(SEATS_RELEASED, { eventId, seatIds: result.seatIds } satisfies SeatsReleasedEvent);
     }
     return {
       ok: true as const,
       released: release,
+      voided: result.count,
       refund: result.refund && { status: result.refund.status, amountCents: result.refund.amountCents },
     };
   }
@@ -371,7 +383,8 @@ export class TicketsService {
       if (r.status !== "FAILED") throw new ConflictException("Solo se reintenta una devolución fallida");
       await tx
         .update(schema.refund)
-        .set({ status: "PENDING", error: null, updatedAt: new Date() })
+        // Reintentar = el promotor confirma que no se llegó a devolver: fuera la marca de envío.
+        .set({ status: "PENDING", error: null, providerRef: null, updatedAt: new Date() })
         .where(eq(schema.refund.id, refundId));
       await tx.insert(schema.outbox).values({
         tenantId: getStore()!.tenantId,

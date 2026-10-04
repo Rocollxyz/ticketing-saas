@@ -54,6 +54,7 @@ export function redsysOrderCode(orderId: string): string {
  */
 export class RedsysProvider implements PaymentProvider {
   readonly name = "redsys";
+  readonly idempotentRefunds = false; // su API REST no admite clave de idempotencia
   private readonly merchant = process.env.REDSYS_MERCHANT_CODE ?? "";
   private readonly terminal = process.env.REDSYS_TERMINAL ?? "1";
   private readonly secret = process.env.REDSYS_SECRET ?? "";
@@ -138,7 +139,9 @@ export class RedsysProvider implements PaymentProvider {
     });
     const json = (await r.json().catch(() => null)) as Record<string, string> | null;
     if (!json) throw new Error(`Redsys respondió ${r.status}`);
-    if (json.errorCode) throw new Error(`Redsys rechazó la devolución (${json.errorCode})`);
+    if (json.errorCode) {
+      return { providerRef, status: "failed", reason: `Redsys rechazó la devolución (${json.errorCode})` };
+    }
     const params = this.verify(json.Ds_MerchantParameters, json.Ds_Signature);
     if (!params) throw new Error("Respuesta de Redsys con firma inválida");
     // 0900 = devolución aceptada.

@@ -227,6 +227,42 @@ export class CheckoutService {
     });
   }
 
+  /**
+   * La pasarela avisa de que una devolución dada por hecha ha fallado: vuelve a FAILED
+   * (visible en «Asistentes», reintentable) y el pago deja de contar como devuelto.
+   */
+  private async markRefundFailed(providerName: string, refundRef: string, reason?: string) {
+    const [r] = await this.admin.db
+      .select()
+      .from(schema.refund)
+      .where(eq(schema.refund.providerRef, refundRef))
+      .limit(1);
+    if (!r || r.status !== "SUCCEEDED") return { ignored: "devolución desconocida o no hecha" };
+    this.logger.error(`devolución ${r.id} (${providerName}) FALLÓ después de darse por hecha: ${reason ?? "sin motivo"}`);
+    await this.admin.db.transaction(async (tx) => {
+      await tx
+        .update(schema.refund)
+        .set({
+          status: "FAILED",
+          error: `La pasarela no pudo completar la devolución${reason ? ` (${reason})` : ""}: reinténtala o devuélvela por otra vía`,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.refund.id, r.id));
+      if (r.paymentId) {
+        await tx
+          .update(schema.payment)
+          .set({ status: "CAPTURED" })
+          .where(and(eq(schema.payment.id, r.paymentId), eq(schema.payment.status, "REFUNDED")));
+      }
+      await tx.insert(schema.auditLog).values({
+        tenantId: r.tenantId,
+        action: "refund.failed_later",
+        diff: { refundId: r.id, reason: reason ?? null },
+      });
+    });
+    return { ok: true, refundFailed: r.id };
+  }
+
   /** Estado de un pedido para la página de vuelta (sin datos personales). */
   orderStatus(orderId: string) {
     return this.db.run(async (tx) => {
@@ -317,6 +353,7 @@ export class CheckoutService {
     if (!provider) throw new NotFoundException("Proveedor desconocido");
     const evt = provider.verifyAndParse(rawBody, headers);
     if (!evt) throw new BadRequestException("Firma de webhook inválida");
+    if (evt.type === "refund_failed") return this.markRefundFailed(providerName, evt.providerRef, evt.reason);
     if (evt.type !== "payment_succeeded") return { ignored: evt.type };
 
     // Resolver tenant/order por el pago — privilegiado, aún sin contexto de tenant.

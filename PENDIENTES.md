@@ -51,39 +51,30 @@ directorio de promotores en la portada `/` (hoy es una demo fija).
 ### Huecos conocidos de lo ya hecho
 > Limitaciones de lo que ya funciona. Se apuntan aquí en cuanto aparecen y se quitan al
 > resolverlas. **Antes del paso a producción se repasa la lista y se resuelve lo que quede.**
+> Último repaso: 2026-10-04 (resueltos: plano «vendido», IVA/IGIC en la consola, devoluciones
+> Redsys sin duplicados, devoluciones de Stripe que fallan después, anular el pedido entero,
+> datos de asistentes y factura completa en taquilla).
 
-- **Entradas vendidas antes del 2026-10-04** no tienen guardado lo pagado (`price_cents`
-  null): al devolverlas se propone la parte proporcional del pedido.
-- **Devoluciones de Stripe «pendientes»** se dan por hechas: no se sigue por webhook el raro
-  caso de que fallen después (`refund.failed`).
-- **Devolución de una venta con datáfono** (TPV) se trata como «en mano»: falta devolver por
-  el propio datáfono cuando haya uno real.
-- No hay «devolver el pedido entero» desde una entrada: se anula entrada a entrada (o todo
-  el evento si se cancela).
-- **VERI*FACTU incompleto**: falta enviar los registros a la AEAT, el QR y la leyenda en la
-  factura y la declaración responsable. Obligatorio desde 1-1-2027 (sociedades) / 1-7-2027
-  (autónomos). Detalle en FACTURACION.md.
-- La **taquilla** no pide datos para factura completa (> 400 € se canjea después).
-- El **comprador** no puede pedir factura completa tras comprar (lo hace el promotor).
-- La lista de tipos de entrada pone «IVA» aunque el promotor esté en IGIC (la factura sí
-  dice IGIC).
-- **Comisiones de la plataforma**: cuando se cobren, facturarlas al promotor (21 %).
-- TicketBAI (País Vasco) y SII no están contemplados.
-- **Redsys en producción**: necesita `PUBLIC_API_URL` público (HTTPS) para la notificación;
-  en local solo funciona la confirmación al volver el comprador (si cierra la pestaña en
-  Redsys antes de volver, el pago no se ve hasta que llegue la notificación).
-- **Devoluciones por Redsys** no tienen clave de idempotencia en su API: si el proceso cae
-  justo después de devolver y antes de anotarlo, el reintento podría devolver dos veces.
-- **Bizum** solo probado hasta la redirección (el entorno de pruebas pide un móvil de
-  pruebas del banco); el pago y la devolución van por el mismo camino que la tarjeta.
-- Con Redsys no se puede cancelar un pago a medio hacer: si el comprador paga después de
-  caducar la reserva, entra por «cobrado sin plaza» (se devuelve solo).
-- La lista de «Asistentes» pone «Online» sin distinguir tarjeta de Bizum.
+**Con el despliegue** (se resuelven al montar producción):
+- **Redsys**: `PUBLIC_API_URL` público (HTTPS) para la notificación, y credenciales reales
+  del banco. En local solo funciona la confirmación al volver el comprador.
+- **Stripe**: el webhook de producción debe suscribirse también a `refund.failed` y
+  `charge.refund.updated` (devoluciones que fallan después).
+- **Imágenes**: adaptador S3/R2 y borrar las sustituidas (hoy quedan huérfanas en disco).
+
+**Dependen de terceros:**
+- **VERI*FACTU**: envío a la AEAT (certificado), QR y leyenda en la factura, declaración
+  responsable. Obligatorio 1-1-2027 (sociedades) / 1-7-2027 (autónomos). Ver FACTURACION.md.
+- **TicketBAI** (País Vasco) y **SII**: según dónde estén los promotores (gestoría).
+- **Bizum**: probado hasta la redirección; el pago completo pide un móvil de pruebas del banco.
+- **Datáfono real**: la devolución de una venta con tarjeta en taquilla se trata «en mano».
+
+**Después de producción:**
+- El comprador no puede pedir factura completa tras comprar (lo hace el promotor): llegará
+  con el área del comprador.
+- Comisiones de la plataforma: facturarlas al promotor (21 %) cuando se cobren.
 - Invitaciones en numerado: se asignan los primeros asientos libres; no se pueden elegir.
-- **Taquilla** no pide los datos de asistentes al vender en mostrador.
-- Plano de la tienda: un asiento vendido antes de abrir la página sale «ocupado» en vez de
-  «vendido».
-- **Imágenes**: las sustituidas no se borran (huérfanas); falta adaptador S3/R2 para producción.
+- La lista de «Asistentes» pone «Online» sin distinguir tarjeta de Bizum.
 
 ### Seguridad y RGPD (ver SECURITY_AUDIT.md)
 - ✅ Hecho (2026-10-04): límite de peticiones (I1), test anti-fuga RLS + CI (A2), clave de
