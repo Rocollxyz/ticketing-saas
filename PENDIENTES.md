@@ -49,6 +49,9 @@ prefijo de número de entrada · Stripe Connect / planes y comisiones para promo
 directorio de promotores en la portada `/` (hoy es una demo fija).
 
 ### Huecos conocidos de lo ya hecho
+> Limitaciones de lo que ya funciona. Se apuntan aquí en cuanto aparecen y se quitan al
+> resolverlas. **Antes del paso a producción se repasa la lista y se resuelve lo que quede.**
+
 - **Precio por entrada** no se guarda en `ticket` (el CSV no lo trae; el email usa el precio
   vigente). Hará falta para IVA/facturas (#7).
 - Invitaciones en numerado: se asignan los primeros asientos libres; no se pueden elegir.
