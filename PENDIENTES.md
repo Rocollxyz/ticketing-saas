@@ -197,6 +197,36 @@ directorio de promotores en la portada `/` (hoy es una demo fija).
 - 🟡 **C2**: validación de entrada en el resto de la API (la gestión de eventos ya valida).
 - **MASTER_KEY**: guardarla a salvo; si se pierde, los QR emitidos dejan de validar.
 
+### Defensa en producción (ver OPERACIONES.md, 2026-10-25)
+- Alertas y monitorización (dinero, ataques, salud técnica).
+- Verificación en dos pasos para promotores y, sobre todo, admin de plataforma.
+- Interruptor general para parar todas las ventas.
+- Registro de accesos al admin de plataforma.
+- CDN/WAF delante de la tienda y, más adelante, cola virtual.
+- Next 16 (quedan 5 avisos de `npm audit` que solo arregla esa versión).
+
+### Plan contra bots (acordado 2026-10-25)
+- **Hoy**: límite por pedido; reserva de 10 min; por IP 30 reservas y 20 pagos cada 10 min,
+  15 códigos de descuento; login limitado por cuenta e IP. Falta todo lo de abajo.
+- **Antes del lanzamiento**: Cloudflare delante (detección de bots); **Turnstile** solo en
+  reservar, pagar e iniciar sesión; **una reserva activa por persona y evento**; alertas
+  (reservas sin pago desde un mismo origen, pagos rechazados en serie).
+- **Primeros eventos con demanda**: **límite por persona entre pedidos** (email, tarjeta,
+  nombre del asistente: lo que más frena a los revendedores); «modo salida a la venta»
+  (reserva de 5 min, reglas más estrictas; pedir email antes de reservar).
+- **Eventos grandes**: cola virtual con orden aleatorio al abrir; preventa por código o para
+  clientes del promotor (CRM); entradas nominativas con DNI en la puerta; QR enviado unos días
+  antes del evento.
+- **Largo plazo**: QR dinámico y reventa oficial a precio controlado.
+
+### Para desplegar (2026-10-25)
+- **Tareas de fondo con una sola instancia**: el worker del `outbox` (emails, facturas,
+  devoluciones) lee filas sin bloquearlas (sin `FOR UPDATE SKIP LOCKED`); con dos réplicas de
+  la API se procesarían dos veces (emails duplicados). Separar un proceso `worker` único
+  (outbox, sweeper de reservas, retención RGPD) de la API, o reclamar filas con bloqueo.
+- Dockerfiles (no hay ninguno), Next en modo `standalone`, migraciones en cada despliegue,
+  adaptador S3 para imágenes, entorno de pruebas (staging).
+
 ### Paso a producción (sin decidir)
 - Sistema propio de despliegue: hosting, dominios, CI/CD, secretos, copias de seguridad
   de la BD, monitorización y logs.
