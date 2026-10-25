@@ -408,7 +408,21 @@ const ticketQuery = (f: TicketFilters, offset?: number) => {
 export const listTickets = (token: string, eventId: string, f: TicketFilters, offset = 0) =>
   authed<TicketPage>(token, `/events/${eventId}/tickets${ticketQuery(f, offset)}`);
 
-export const updateTicketAttendee = (token: string, eventId: string, ticketId: string, values: Record<string, unknown>) =>
+export type TicketHistoryKind = "order" | "payment" | "issued" | "email" | "change" | "refund" | "access" | "warn";
+
+export interface TicketHistoryItem {
+  at: string;
+  kind: TicketHistoryKind;
+  title: string;
+  detail: string | null;
+  /** Email de quien hizo el cambio (consola o taquilla). */
+  actor: string | null;
+}
+
+export const ticketHistory = (token: string, eventId: string, ticketId: string) =>
+  authed<{ ticketId: string; items: TicketHistoryItem[] }>(token, `/events/${eventId}/tickets/${ticketId}/history`);
+
+export const updateTicketAttendee =(token: string, eventId: string, ticketId: string, values: Record<string, unknown>) =>
   authed<{ ok: true; attendee: AttendeeAnswer[]; attendeeName: string | null }>(
     token,
     `/events/${eventId}/tickets/${ticketId}/attendee`,

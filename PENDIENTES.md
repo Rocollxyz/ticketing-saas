@@ -84,6 +84,17 @@ directorio de promotores en la portada `/` (hoy es una demo fija).
   (hay que editarlas en cada una); (2) sin cupo por tarifa (p. ej. «máx. 20 jubilados»);
   (3) la app de control de acceso aún no existe en el repo: la API ya devuelve
   `fare`/`requirement` al escanear, falta mostrarlo cuando se haga.
+- **App de acceso: ideas del usuario (2026-10-25)**. Apartado de **pendientes por validar**:
+  número (validadas / vendidas / faltan) y vista visual (plano coloreado en numerado, barras
+  por categoría/zona en general, ritmo de entrada y previsión). Más propuestas en la
+  conversación de esa fecha: búsqueda y validación manual (por nombre/pedido/asiento, pedido
+  entero), pantalla de resultado grande con categoría/tarifa/requisito y, si está repetida,
+  cuándo y por qué puerta entró; puertas/zonas por dispositivo; panel del responsable de
+  sala (dispositivos, ritmo por puerta, alertas de rechazos); notas de incidencias; informe
+  final (asistencia, no presentados).
+- **Con la app de acceso**: apartado «Equipo» en la consola del promotor para dar de alta,
+  cambiar de rol (gestor, taquillero, portero) y quitar el acceso a su gente. Hoy solo el
+  admin de plataforma crea promotores; los usuarios extra salen del seed (decidido 2026-10-25).
 - Corregido de paso: el presupuesto con código de descuento ignoraba los asientos cuando
   el pedido mezclaba asientos y entradas sin asiento.
 - Después: abonos, gastos de gestión, taquilla profesional (cierre de caja, impresión
@@ -112,6 +123,31 @@ directorio de promotores en la portada `/` (hoy es una demo fija).
 - **Apple Pay / Google Pay**: aparecen solos en el formulario de Stripe al servir la tienda por
   HTTPS y verificar el dominio (con el despliegue).
 
+### CRM (estrategia acordada 2026-10-25)
+- **Un CRM por promotor** («tus clientes son tuyos»), acotado a eventos: lo que un CRM
+  genérico no sabe (compras, asistencia real por los escaneos, tarifas, códigos). Lo demás,
+  exportar e integrar. Apunta a **marca blanca** (decisión formal aún pendiente, ver arriba).
+  Posible plan de pago (básico / con CRM).
+- **El centro es la ficha de cliente** (por email, dentro del promotor): compras, gasto,
+  asistencia («compró 6, vino 5»), tarifas y códigos, historial de entradas, etiquetas y
+  notas. Los campos del formulario de asistentes (código postal, año de nacimiento, nº de
+  socio…) alimentan el CRM.
+- **Usos, no solo email**: venta (preventa privada por segmento, tarifas de socio/fidelidad,
+  límite por persona entre pedidos, lista de espera de agotados, renovación de butaca de
+  abonados); taquilla (buscar cliente, su tarifa, sus notas); puerta (avisos al escanear:
+  VIP, prensa, accesibilidad); atención al cliente (ficha única, detectar abusos);
+  programación (público por tipo de evento, cuándo compran, procedencia, no presentados);
+  **informes de público agregados y anónimos para patrocinadores y subvenciones**; socios y
+  comunidad (cuotas, ventajas); avisos de servicio por SMS/WhatsApp/Wallet.
+- **Legal**: casilla de consentimiento para publicidad (sin marcar, guardando cuándo y con qué
+  texto) y baja de un clic; excepción de clientes para eventos similares. No todo necesita
+  ese permiso (preventas, avisos de servicio, notas: contrato/interés legítimo). Accesibilidad
+  = dato de salud → consentimiento explícito.
+- **Campañas masivas**: recomendado proveedor especializado (Brevo/Mailchimp) aparte del
+  servicio propio de emails de entradas; límites por promotor y bloqueo por quejas. Sin decidir.
+- **Orden**: (1) ficha, etiquetas, notas y segmentos; (2) usos en venta y puerta; (3) informes
+  de público; (4) socios y abonos; (5) campañas y automatizaciones.
+
 ### Huecos conocidos de lo ya hecho
 > Limitaciones de lo que ya funciona. Se apuntan aquí en cuanto aparecen y se quitan al
 > resolverlas. **Antes del paso a producción se repasa la lista y se resuelve lo que quede.**
@@ -136,6 +172,9 @@ directorio de promotores en la portada `/` (hoy es una demo fija).
 - **Integración web**: `/embed/*` se deja incrustar en CUALQUIER web; limitarlo a los dominios
   que declare cada promotor. La salida a Redsys desde un módulo (ventana completa) no está
   probada con un pago real dentro de un iframe.
+
+- **QR filtrado**: no se puede dar a una entrada un código nuevo que invalide el anterior
+  (reenviar manda el mismo QR); hoy solo cabe anularla y emitir otra.
 
 - **Plano de la taquilla**: sigue con butacas grandes (56 px); con planos de muchas columnas
   se desborda. Reutilizar el plano compacto de la tienda (`SeatMap.tsx`) o esperar al de Raquel.

@@ -33,6 +33,12 @@ export class TicketsController {
     return this.tickets.issueManual(id, body ?? {});
   }
 
+  /** Historial de la entrada: compra, pagos, emails, cambios, devoluciones y escaneos. */
+  @Get(":ticketId/history")
+  history(@Param("id") id: string, @Param("ticketId") ticketId: string) {
+    return this.tickets.history(id, ticketId);
+  }
+
   /** { values: {fieldId: valor} } */
   @Patch(":ticketId/attendee")
   updateAttendee(@Param("id") id: string, @Param("ticketId") ticketId: string, @Body() body: Record<string, unknown>) {

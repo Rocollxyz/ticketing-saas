@@ -13,6 +13,7 @@ import { formatInZone } from "../catalog/format";
 import { qualified, seatTaken } from "../catalog/pricing";
 import { seatLabel } from "../catalog/seat-label";
 import * as input from "../common/input";
+import { AdminDb } from "../database/admin-db.service";
 import { getStore } from "../database/tenant-context";
 import { TenantDb } from "../database/tenant-db.service";
 import { SEATS_RELEASED, SEATS_SOLD, type SeatsReleasedEvent, type SeatsSoldEvent } from "../realtime/seat-events";
@@ -58,6 +59,41 @@ const checkedInAtSql = sql<Date | null>`(
   select min(c.scanned_at) from check_in c where c.ticket_id = ${qualified(schema.ticket.id)} and c.result = 'OK'
 )`.mapWith((v: string | null) => (v ? new Date(v) : null));
 
+type HistoryKind = "order" | "payment" | "issued" | "email" | "change" | "refund" | "access" | "warn";
+interface HistoryItem {
+  at: string;
+  kind: HistoryKind;
+  title: string;
+  detail: string | null;
+  /** Email de quien lo hizo (cambios desde la consola o la taquilla). */
+  actor: string | null;
+}
+
+const PROVIDER_LABEL: Record<string, string> = { stripe: "Stripe", redsys: "Redsys", tpv: "Datáfono", cash: "Efectivo" };
+const AUDIT_LABEL: Record<string, string> = {
+  "ticket.manual_issued": "Invitación emitida a mano",
+  "ticket.attendee_updated": "Datos del asistente corregidos",
+  "ticket.resent": "Reenvío solicitado",
+  "ticket.voided": "Entrada anulada",
+  "ticket.refunded": "Devolución pedida desde la consola",
+  "refund.retried": "Devolución reintentada",
+  "refund.manual_done": "Devolución en mano marcada como hecha",
+  // refund.failed_later no: ya sale de la propia devolución («La devolución ha fallado»).
+};
+
+const euro = (cents: number) => `${(cents / 100).toFixed(2).replace(".", ",")} €`;
+
+/** «DNI / NIE: 1234 → 5678» con los campos que cambiaron. */
+function attendeeDiff(before: unknown, after: unknown): string | null {
+  const val = (list: unknown) =>
+    new Map((Array.isArray(list) ? (list as AttendeeAnswer[]) : []).map((a) => [a.fieldId, a] as const));
+  const b = val(before);
+  const changes = [...val(after).values()]
+    .filter((a) => b.get(a.fieldId)?.value !== a.value)
+    .map((a) => `${a.label}: ${b.get(a.fieldId)?.value || "—"} → ${a.value || "—"}`);
+  return changes.length ? changes.join(" · ") : null;
+}
+
 /**
  * Gestión de las entradas emitidas de un evento (consola del promotor): listado con
  * búsqueda, edición de los datos del asistente, reenvío por email, anulación, emisión
@@ -68,6 +104,7 @@ const checkedInAtSql = sql<Date | null>`(
 export class TicketsService {
   constructor(
     private readonly db: TenantDb,
+    private readonly admin: AdminDb,
     private readonly reservation: ReservationService,
     private readonly emitter: EventEmitter2,
   ) {}
@@ -103,6 +140,146 @@ export class TicketsService {
         .where(eq(schema.ticket.eventId, eventId));
       return { total, offset, pageSize: PAGE, counts, tickets: rows };
     });
+  }
+
+  /**
+   * Historial de UNA entrada, de la compra al acceso: pagos, emisión, emails, cambios
+   * hechos desde la consola (con quién), devoluciones y cada escaneo (también los
+   * rechazados). Se arma con lo que ya registra cada paso; aquí solo se junta y ordena.
+   */
+  history(eventId: string, ticketId: string) {
+    this.assertPromoter();
+    return this.db.run(async (tx) => {
+      const tk = await this.loadTicketTx(tx, eventId, ticketId);
+      const [order] = await tx
+        .select({ createdAt: schema.order.createdAt, buyerName: schema.order.buyerName })
+        .from(schema.order)
+        .where(eq(schema.order.id, tk.orderId));
+      const items: HistoryItem[] = [];
+      const add = (at: Date | null, kind: HistoryKind, title: string, detail?: string | null, actor?: string | null) =>
+        at && items.push({ at: at.toISOString(), kind, title, detail: detail ?? null, actor: actor ?? null });
+
+      add(order?.createdAt ?? null, "order", "Pedido creado", [order?.buyerName, tk.buyerEmail].filter(Boolean).join(" · "));
+
+      const payments = await tx
+        .select({
+          createdAt: schema.payment.createdAt,
+          updatedAt: schema.payment.updatedAt,
+          provider: schema.payment.provider,
+          ref: schema.payment.providerRef,
+          status: schema.payment.status,
+          amountCents: schema.payment.amountCents,
+        })
+        .from(schema.payment)
+        .where(eq(schema.payment.orderId, tk.orderId))
+        .orderBy(schema.payment.createdAt);
+      for (const p of payments) {
+        if (p.ref === INVITATION_REF) continue; // invitación: no hay cobro
+        const what = `${PROVIDER_LABEL[p.provider] ?? p.provider} · ${euro(Number(p.amountCents))}`;
+        add(p.createdAt, "payment", `Pago iniciado (${what})`, p.ref ? `Referencia: ${p.ref}` : null);
+        if (p.status === "CAPTURED" || p.status === "REFUNDED") add(p.updatedAt, "payment", "Pago cobrado", what);
+        if (p.status === "FAILED") add(p.updatedAt, "warn", "Pago no completado o anulado", what);
+      }
+
+      const [t] = await tx
+        .select({ createdAt: schema.ticket.createdAt, channel: channelSql })
+        .from(schema.ticket)
+        .where(eq(schema.ticket.id, ticketId));
+      add(t.createdAt, "issued", "Entrada emitida", `Canal: ${CHANNEL_LABEL[channelOf(t.channel)]}`);
+
+      // Emails con la entrada (el primero y los reenvíos): cuándo salió de verdad.
+      const mails = await tx
+        .select({ createdAt: schema.outbox.createdAt, processedAt: schema.outbox.processedAt, payload: schema.outbox.payload })
+        .from(schema.outbox)
+        .where(and(eq(schema.outbox.type, "ticket.issued"), sql`${schema.outbox.payload}->'ticketIds' ? ${ticketId}`));
+      for (const m of mails) {
+        const p = m.payload as { to?: string; resend?: boolean };
+        const to = p.to ?? tk.buyerEmail;
+        if (m.processedAt) add(m.processedAt, "email", p.resend ? "Email reenviado" : "Email con la entrada enviado", to);
+        else add(m.createdAt, "email", "Email pendiente de envío", to);
+      }
+
+      const refunds = await tx
+        .select({
+          id: schema.refund.id,
+          createdAt: schema.refund.createdAt,
+          updatedAt: schema.refund.updatedAt,
+          status: schema.refund.status,
+          amountCents: schema.refund.amountCents,
+          reason: schema.refund.reason,
+          error: schema.refund.error,
+        })
+        .from(schema.refund)
+        .where(sql`jsonb_exists(${schema.refund.ticketIds}, ${ticketId})`);
+      for (const r of refunds) {
+        add(r.createdAt, "refund", `Devolución de ${euro(r.amountCents)} solicitada`, r.reason);
+        if (r.status === "SUCCEEDED") add(r.updatedAt, "refund", "Dinero devuelto", euro(r.amountCents));
+        if (r.status === "FAILED") add(r.updatedAt, "warn", "La devolución ha fallado", r.error);
+        if (r.status === "MANUAL") add(r.updatedAt, "refund", "Devolución pendiente en mano (taquilla)", euro(r.amountCents));
+      }
+
+      // Cambios hechos por personas (consola, taquilla) que afectan a esta entrada.
+      const refundIds = refunds.map((r) => r.id);
+      const audits = await tx
+        .select({
+          action: schema.auditLog.action,
+          diff: schema.auditLog.diff,
+          createdAt: schema.auditLog.createdAt,
+          actorId: schema.auditLog.actorUserId,
+        })
+        .from(schema.auditLog)
+        .where(
+          sql`(
+            ${schema.auditLog.diff}->>'ticketId' = ${ticketId}
+            or ${schema.auditLog.diff}->'ticketIds' ? ${ticketId}
+            or (${schema.auditLog.action} = 'ticket.manual_issued' and ${schema.auditLog.diff}->>'orderId' = ${tk.orderId})
+            ${refundIds.length ? sql`or ${schema.auditLog.diff}->>'refundId' in ${refundIds}` : sql``}
+          )`,
+        );
+      const actors = await this.memberEmails(audits.map((a) => a.actorId).filter((id): id is string => !!id));
+      for (const a of audits) {
+        const d = (a.diff ?? {}) as Record<string, unknown>;
+        const label = AUDIT_LABEL[a.action];
+        if (!label) continue;
+        const detail =
+          a.action === "ticket.voided"
+            ? [d.reason, d.released === false ? "plaza bloqueada" : "plaza de nuevo a la venta"].filter(Boolean).join(" · ")
+            : a.action === "ticket.resent"
+              ? `A ${String(d.to ?? "")}`
+              : a.action === "ticket.attendee_updated"
+                ? attendeeDiff(d.before, d.after)
+                : null;
+        add(a.createdAt, a.action === "ticket.voided" ? "warn" : "change", label, detail, a.actorId ? actors.get(a.actorId) : null);
+      }
+
+      // Cada escaneo en el acceso, también los rechazados (pista de copias del QR).
+      const scans = await tx
+        .select({ at: schema.checkIn.scannedAt, result: schema.checkIn.result, device: schema.checkIn.deviceId })
+        .from(schema.checkIn)
+        .where(eq(schema.checkIn.ticketId, ticketId));
+      for (const s of scans) {
+        const device = s.device ? `Dispositivo ${s.device}` : null;
+        if (s.result === "OK") add(s.at, "access", "Validada en el acceso", device);
+        else add(s.at, "warn", s.result === "DUPLICATE" ? "Escaneo rechazado: ya estaba usada" : "Escaneo rechazado: no válida", device);
+      }
+
+      items.sort((a, b) => a.at.localeCompare(b.at));
+      return { ticketId, items };
+    });
+  }
+
+  /**
+   * Email de los usuarios que hicieron cambios. `user` no es legible bajo RLS (es global):
+   * AdminDb, limitado a los miembros de ESTE promotor.
+   */
+  private async memberEmails(ids: string[]): Promise<Map<string, string>> {
+    if (ids.length === 0) return new Map();
+    const rows = await this.admin.db
+      .select({ id: schema.user.id, email: schema.user.email })
+      .from(schema.user)
+      .innerJoin(schema.membership, eq(schema.membership.userId, schema.user.id))
+      .where(and(inArray(schema.user.id, [...new Set(ids)]), eq(schema.membership.tenantId, getStore()!.tenantId)));
+    return new Map(rows.map((r) => [r.id, r.email]));
   }
 
   private filters(eventId: string, q: string | undefined, status?: TicketStatus, ticketTypeId?: string) {

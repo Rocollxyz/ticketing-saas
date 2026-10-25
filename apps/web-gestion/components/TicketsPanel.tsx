@@ -17,6 +17,9 @@ import {
   retryRefund,
   type TicketChannel,
   type TicketFilters,
+  ticketHistory,
+  type TicketHistoryItem,
+  type TicketHistoryKind,
   type TicketPage,
   type TicketStatus,
   updateTicketAttendee,
@@ -484,6 +487,98 @@ function TicketDetail({
       )}
       {mode === "view" && !isVoid && applicable.length === 0 && (
         <span className="faint">Para editar datos del asistente, añade campos en la pestaña «Formulario».</span>
+      )}
+
+      <TicketHistory
+        token={token}
+        eventId={eventId}
+        ticketId={t.id}
+        when={when}
+        // Tras anular, devolver, validar… el historial se vuelve a pedir.
+        version={`${t.status}|${t.refund?.status ?? ""}|${t.checkedInAt ?? ""}|${t.attendeeName ?? ""}`}
+      />
+    </div>
+  );
+}
+
+const HISTORY_DOT: Record<TicketHistoryKind, string> = {
+  order: "var(--muted)",
+  payment: "var(--accent)",
+  issued: "var(--green)",
+  email: "var(--accent)",
+  change: "var(--muted)",
+  refund: "var(--accent)",
+  access: "var(--green)",
+  warn: "var(--red)",
+};
+
+/**
+ * Historial de la entrada (trazabilidad): de la compra al acceso, con cada escaneo
+ * (también los rechazados) y quién hizo cada cambio desde la consola o la taquilla.
+ */
+function TicketHistory({
+  token,
+  eventId,
+  ticketId,
+  when,
+  version,
+}: {
+  token: string;
+  eventId: string;
+  ticketId: string;
+  when: (d: string | null) => string;
+  version: string;
+}) {
+  const [items, setItems] = useState<TicketHistoryItem[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    ticketHistory(token, eventId, ticketId)
+      .then((r) => !cancelled && setItems(r.items))
+      .catch((e) => !cancelled && setError(e instanceof Error ? e.message : "No se pudo cargar el historial"));
+    return () => {
+      cancelled = true;
+    };
+  }, [token, eventId, ticketId, version]);
+
+  return (
+    <div>
+      <div className="faint" style={{ marginBottom: 6 }}>
+        Historial
+      </div>
+      {error ? (
+        <span className="muted" style={{ fontSize: 14 }}>
+          {error}
+        </span>
+      ) : !items ? (
+        <span className="muted" style={{ fontSize: 14 }}>
+          Cargando…
+        </span>
+      ) : (
+        <ol style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 8 }}>
+          {items.map((i, n) => (
+            <li key={n} style={{ display: "grid", gridTemplateColumns: "10px 1fr", gap: 10, fontSize: 14 }}>
+              <span
+                aria-hidden
+                style={{ width: 8, height: 8, borderRadius: "50%", marginTop: 6, background: HISTORY_DOT[i.kind] }}
+              />
+              <div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "0 10px", alignItems: "baseline" }}>
+                  <strong style={{ fontWeight: 600, color: i.kind === "warn" ? "var(--red)" : undefined }}>{i.title}</strong>
+                  <span className="faint" style={{ fontSize: 12 }}>
+                    {when(i.at)}
+                  </span>
+                </div>
+                {(i.detail || i.actor) && (
+                  <div className="muted" style={{ fontSize: 13, wordBreak: "break-word" }}>
+                    {[i.detail, i.actor && `por ${i.actor}`].filter(Boolean).join(" · ")}
+                  </div>
+                )}
+              </div>
+            </li>
+          ))}
+        </ol>
       )}
     </div>
   );
