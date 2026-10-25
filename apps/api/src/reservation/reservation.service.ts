@@ -279,7 +279,24 @@ export class ReservationService {
       .from(schema.hold)
       .where(eq(schema.hold.orderId, orderId))
       .for("update");
-    if (!h) throw new NotFoundException("No hay hold para el pedido");
+    if (!h) {
+      // Cobro tardío de un pedido que se soltó para REINTENTAR el pago (la reserva pasó
+      // a otro pedido, ver HoldReleaseService.detachPayment). Ya hay o habrá otro cobro
+      // por esas plazas: este se devuelve. Sin error, o el webhook se reintentaría sin fin.
+      const [o] = await tx
+        .select({ eventId: schema.order.eventId, status: schema.order.status })
+        .from(schema.order)
+        .where(eq(schema.order.id, orderId));
+      if (!o) throw new NotFoundException("No hay hold para el pedido");
+      this.logger.error(`PAGO SIN PLAZA: pedido ${orderId} cobrado tras soltarse para reintentar → reembolso`);
+      await tx.update(schema.order).set({ status: "CANCELLED" }).where(eq(schema.order.id, orderId));
+      await tx.insert(schema.outbox).values({
+        tenantId,
+        type: "order.refund_required",
+        payload: { orderId, reason: "payment_retried_with_another_order" },
+      });
+      return { eventId: o.eventId, tickets: [] };
+    }
 
     // Defensa: cobro sobre una reserva ya liberada. No debería pasar (antes de liberar
     // se cancela el cobro, ver HoldReleaseService), pero si pasa y la plaza ya es de

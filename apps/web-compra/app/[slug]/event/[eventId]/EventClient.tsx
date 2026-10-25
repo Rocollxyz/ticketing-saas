@@ -61,6 +61,52 @@ interface ActiveHold {
   deadline: number;
 }
 
+/**
+ * Reserva guardada en la PESTAÑA (sessionStorage): al salir a pagar a Redsys/Bizum la
+ * página se descarga; al volver se recupera la reserva con el tiempo que le quede.
+ */
+interface SavedHold {
+  holdId: string;
+  selected: string[];
+  qty: Record<string, number>;
+  seatFare: Record<string, string>;
+  email: string;
+  buyerName: string;
+  method: PaymentMethod;
+}
+
+const holdKey = (eventId: string) => `shop_hold:${eventId}`;
+
+function loadSaved(eventId: string): SavedHold | null {
+  try {
+    const raw = sessionStorage.getItem(holdKey(eventId));
+    return raw ? (JSON.parse(raw) as SavedHold) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveHold(eventId: string, h: SavedHold | null) {
+  try {
+    if (h) sessionStorage.setItem(holdKey(eventId), JSON.stringify(h));
+    else sessionStorage.removeItem(holdKey(eventId));
+  } catch {
+    // Sin almacenamiento (modo privado estricto): la compra funciona igual, sin recuperar.
+  }
+}
+
+/** sessionId de la pestaña: el mismo tras volver de la pasarela (la reserva es suya). */
+function tabSessionId(): string {
+  const fresh = () => (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : String(Math.random()));
+  try {
+    const s = sessionStorage.getItem("shop_session") ?? fresh();
+    sessionStorage.setItem("shop_session", s);
+    return s;
+  } catch {
+    return fresh();
+  }
+}
+
 const muted: React.CSSProperties = { fontSize: 14, color: "var(--muted)" };
 
 export default function EventClient({
@@ -116,10 +162,41 @@ export default function EventClient({
   // sessionId estable de esta pestaña: lo enviamos al reservar para que el servidor
   // marque el `actor` y así NO nos auto-bloqueemos con nuestro propio seats.held.
   const sessionId = useRef<string>("");
-  if (!sessionId.current) {
-    sessionId.current =
-      typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : String(Math.random());
-  }
+  if (!sessionId.current && typeof window !== "undefined") sessionId.current = tabSessionId();
+
+  // Al volver a la página (p. ej. desde Redsys tras un pago fallido): si la reserva de
+  // esta pestaña sigue viva, se recupera con el contador donde estaba.
+  useEffect(() => {
+    const saved = loadSaved(ev.id);
+    if (!saved) return;
+    let cancelled = false;
+    fetch(`${API_URL}/shop/${slug}/holds/${saved.holdId}/status`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sessionId: sessionId.current }),
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((h) => {
+        if (cancelled) return;
+        if (!h?.active) return saveHold(ev.id, null);
+        const remaining = new Date(h.expiresAt).getTime() - new Date(h.serverNow).getTime();
+        setSelected(new Set(saved.selected));
+        setQty(saved.qty);
+        setSeatFare(saved.seatFare);
+        setEmail(saved.email);
+        setBuyerName(saved.buyerName);
+        setMethod(saved.method);
+        setHeldSeats(h.seats ?? []);
+        setHold({ id: h.holdId, deadline: Date.now() + remaining });
+        if (new URLSearchParams(window.location.search).get("pago") === "ko") {
+          setError("El pago no se ha completado y no se ha cobrado nada. Tus entradas siguen reservadas: puedes volver a intentarlo.");
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [ev.id, slug]);
 
   // Disponibilidad en vivo (numerado). `unavailable` = no seleccionable (reservado por
   // otro o vendido); `sold` = vendido definitivo (solo para el estilo).
@@ -319,6 +396,7 @@ export default function EventClient({
       setHold({ id: h.holdId, deadline: Date.now() + remaining });
       setHeldSeats(h.seats ?? []);
       setDetailsDone(false);
+      saveHold(ev.id, { holdId: h.holdId, selected: [...selected], qty, seatFare, email, buyerName, method });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error inesperado");
     } finally {
@@ -368,6 +446,8 @@ export default function EventClient({
         couponCode: coupon?.code,
         billing: sendBilling ? billing : undefined,
         method,
+        // Con ella, si un pago anterior de esta reserva falló, la API lo anula y reintenta.
+        sessionId: sessionId.current,
       }),
     });
     if (!coRes.ok) {
@@ -378,12 +458,15 @@ export default function EventClient({
     // Pasarela por redirección (Redsys: tarjeta o Bizum): el navegador va a pagar allí y
     // vuelve a la página de éxito, que confirma el pago firmado.
     if (co.redirect) {
+      // Los datos ya escritos se guardan para no tener que repetirlos si el pago falla.
+      saveHold(ev.id, { holdId: held.id, selected: [...selected], qty, seatFare, email, buyerName, method });
       // Redsys/Bizum no se pueden mostrar dentro de un iframe: van a la ventana completa.
       submitRedirect(co.redirect.url, co.redirect.fields, embed);
       return;
     }
     // Pedido gratuito: ya está emitido, no hay pago.
     if (co.free) {
+      saveHold(ev.id, null);
       router.push(`${base}/success?event=${ev.id}`);
       return;
     }
@@ -420,6 +503,7 @@ export default function EventClient({
     if (!hold) return;
     setLoading(true);
     await releaseHold(hold.id);
+    saveHold(ev.id, null);
     setHold(null);
     setHeldSeats(null);
     setCheckout(null);
@@ -430,13 +514,14 @@ export default function EventClient({
 
   /** Se acabó el tiempo: fuera el pago; el servidor libera las plazas. */
   const onExpire = useCallback(() => {
+    saveHold(ev.id, null);
     setHold(null);
     setHeldSeats(null);
     setCheckout(null);
     setDetailsDone(false);
     setExpired(true);
     if (hasGeneral) setTimeout(refresh, 25_000); // tras el barrido del servidor
-  }, [hasGeneral, refresh]);
+  }, [ev.id, hasGeneral, refresh]);
 
   const stripePromise = useMemo(() => (checkout ? loadStripe(checkout.publishableKey) : null), [checkout]);
 

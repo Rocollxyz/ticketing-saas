@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { schema } from "@ticketing/database";
 import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import { fareApplies, farePrice } from "../catalog/fare";
@@ -423,26 +423,62 @@ export class StorefrontService {
     return this.withTenant(slug, async () => {
       // Asientos (categorías numeradas) y/o cantidades (generales) en una sola reserva.
       const hold = await this.reservation.createHoldMixed(eventId, selection, sessionId);
-      // Qué plaza y categoría tocó a cada entrada (en entrada general las elige el
-      // servidor): el formulario de asistentes se monta por plaza con esto.
-      const seats = await this.db.run((tx) =>
+      return { ...hold, seats: await this.heldSeats(hold.seatIds) };
+    });
+  }
+
+  /**
+   * Qué plaza y categoría tocó a cada entrada (en entrada general las elige el
+   * servidor): el formulario de asistentes se monta por plaza con esto.
+   */
+  private async heldSeats(seatIds: string[]) {
+    const seats = await this.db.run((tx) =>
+      tx
+        .select({
+          seatId: schema.seat.id,
+          ticketTypeId: schema.seat.ticketTypeId,
+          fila: schema.seat.fila,
+          numero: schema.seat.numero,
+          isGeneral: schema.seat.isGeneral,
+          categoria: schema.ticketType.name,
+        })
+        .from(schema.seat)
+        .leftJoin(schema.ticketType, eq(schema.ticketType.id, schema.seat.ticketTypeId))
+        .where(inArray(schema.seat.id, seatIds))
+        .orderBy(schema.seat.numero),
+    );
+    return seats.map((s) => ({ seatId: s.seatId, ticketTypeId: s.ticketTypeId, label: seatLabel(s) }));
+  }
+
+  /**
+   * ¿Sigue viva la reserva de esta sesión? La tienda la recupera al volver a la página
+   * (p. ej. desde Redsys tras un pago fallido) con el contador donde estaba.
+   */
+  holdStatus(slug: string, holdId: string, sessionId: string) {
+    if (!UUID_RE.test(holdId ?? "")) throw new BadRequestException("Reserva inválida");
+    return this.withTenant(slug, async () => {
+      const [h] = await this.db.run((tx) =>
         tx
-          .select({
-            seatId: schema.seat.id,
-            ticketTypeId: schema.seat.ticketTypeId,
-            fila: schema.seat.fila,
-            numero: schema.seat.numero,
-            isGeneral: schema.seat.isGeneral,
-            categoria: schema.ticketType.name,
-          })
-          .from(schema.seat)
-          .leftJoin(schema.ticketType, eq(schema.ticketType.id, schema.seat.ticketTypeId))
-          .where(inArray(schema.seat.id, hold.seatIds))
-          .orderBy(schema.seat.numero),
+          .select({ status: schema.hold.status, eventId: schema.hold.eventId, expiresAt: schema.hold.expiresAt })
+          .from(schema.hold)
+          .where(and(eq(schema.hold.id, holdId), eq(schema.hold.sessionId, sessionId ?? ""))),
+      );
+      if (!h || h.status !== "ACTIVE" || h.expiresAt.getTime() <= Date.now()) return { active: false as const };
+      const seatIds = await this.db.run(async (tx) =>
+        (
+          await tx
+            .select({ seatId: schema.holdSeat.seatId })
+            .from(schema.holdSeat)
+            .where(and(eq(schema.holdSeat.holdId, holdId), eq(schema.holdSeat.status, "ACTIVE")))
+        ).map((r) => r.seatId),
       );
       return {
-        ...hold,
-        seats: seats.map((s) => ({ seatId: s.seatId, ticketTypeId: s.ticketTypeId, label: seatLabel(s) })),
+        active: true as const,
+        holdId,
+        eventId: h.eventId,
+        expiresAt: h.expiresAt,
+        serverNow: new Date(),
+        seats: await this.heldSeats(seatIds),
       };
     });
   }
@@ -486,7 +522,16 @@ export class StorefrontService {
     slug: string,
     holdId: string,
     buyerEmail?: string,
-    buyer: { name?: unknown; attendees?: unknown; fares?: unknown; couponCode?: unknown; billing?: unknown; method?: unknown } = {},
+    buyer: {
+      name?: unknown;
+      attendees?: unknown;
+      fares?: unknown;
+      couponCode?: unknown;
+      billing?: unknown;
+      method?: unknown;
+      /** Sesión del comprador: con ella puede reintentar el pago de SU reserva. */
+      sessionId?: unknown;
+    } = {},
   ) {
     const method = buyer.method === "bizum" ? "bizum" : "card";
     if (!UUID_RE.test(holdId ?? "")) throw new BadRequestException("Reserva inválida");
@@ -497,8 +542,21 @@ export class StorefrontService {
     if (buyer.name != null && (typeof buyer.name !== "string" || buyer.name.length > 120)) {
       throw new BadRequestException("Nombre del comprador inválido");
     }
-    return this.withTenant(slug, () =>
-      this.checkout.createCheckout(holdId, email, {
+    return this.withTenant(slug, async () => {
+      // Reintento (el pago anterior falló o se abandonó): se anula antes ese cobro, para
+      // que no puedan completarse dos. Solo la sesión que reservó puede hacerlo.
+      const [h] = await this.db.run((tx) =>
+        tx
+          .select({ orderId: schema.hold.orderId, sessionId: schema.hold.sessionId })
+          .from(schema.hold)
+          .where(and(eq(schema.hold.id, holdId), eq(schema.hold.status, "ACTIVE"))),
+      );
+      if (h?.orderId && typeof buyer.sessionId === "string" && buyer.sessionId === h.sessionId) {
+        if (!(await this.releaser.detachPayment(holdId))) {
+          throw new ConflictException("Tu pago anterior aún se está procesando. Espera unos segundos y vuelve a intentarlo.");
+        }
+      }
+      return this.checkout.createCheckout(holdId, email, {
         name: buyer.name as string | undefined,
         attendees: buyer.attendees,
         fares: buyer.fares,
@@ -510,8 +568,8 @@ export class StorefrontService {
           ok: `${SHOP_URL}/${slug}/success?order=${orderId}&pay=redsys`,
           ko: `${SHOP_URL}/${slug}/success?order=${orderId}&pay=redsys&ko=1`,
         }),
-      }),
-    );
+      });
+    });
   }
 
   /**

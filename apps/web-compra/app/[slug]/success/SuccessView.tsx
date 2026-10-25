@@ -36,8 +36,12 @@ export default async function SuccessView({ slug, base, searchParams }: { slug: 
         <div style={{ fontSize: 56 }}>⚠️</div>
         <h1>El pago no se ha completado</h1>
         {info && <p style={{ fontSize: 18, margin: "0 0 8px" }}>{info.name}</p>}
-        <p style={{ opacity: 0.8 }}>No se ha cobrado nada. Tus entradas se liberarán en unos minutos.</p>
-        <Link href={eventId ? `${base}/event/${eventId}` : base} style={{ color: "var(--accent)" }}>
+        <p style={{ opacity: 0.8 }}>
+          No se ha cobrado nada. Tus entradas siguen reservadas unos minutos: puedes volver a intentarlo, también
+          con otra forma de pago.
+        </p>
+        {/* La página del evento recupera la reserva de esta pestaña con el contador. */}
+        <Link href={eventId ? `${base}/event/${eventId}?pago=ko` : base} style={{ color: "var(--accent)" }}>
           ← Volver a intentarlo
         </Link>
       </main>

@@ -120,7 +120,8 @@ export class RefundProcessorService {
         paymentId: pay.id,
         amountCents: amount,
         status: "PENDING",
-        reason: "Cobrado sin plaza: la reserva había caducado",
+        // Caducó y otro se quedó la plaza, o el comprador ya la pagó con otro intento.
+        reason: "Cobrado sin plaza: la reserva ya no correspondía a este pago",
       })
       .returning();
     await this.process(r.id);

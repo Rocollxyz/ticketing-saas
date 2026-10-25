@@ -61,6 +61,16 @@ export class StorefrontController {
     return this.shop.releaseHold(slug, holdId, body?.sessionId ?? "");
   }
 
+  /** ¿Sigue viva mi reserva? (POST: el sessionId no va en la URL ni en los logs). */
+  @Post("holds/:holdId/status")
+  holdStatus(
+    @Param("slug") slug: string,
+    @Param("holdId") holdId: string,
+    @Body() body: { sessionId?: string },
+  ) {
+    return this.shop.holdStatus(slug, holdId, body?.sessionId ?? "");
+  }
+
   @Post("checkout")
   @RateLimit({ name: "shop-checkout", limit: 20, windowSec: 600 })
   checkout(
@@ -75,9 +85,11 @@ export class StorefrontController {
       couponCode?: unknown;
       billing?: unknown;
       method?: unknown;
+      sessionId?: unknown;
     },
   ) {
     return this.shop.createCheckout(slug, body.holdId, body.buyerEmail, {
+      sessionId: body.sessionId,
       name: body.buyerName,
       attendees: body.attendees,
       fares: body.fares,
