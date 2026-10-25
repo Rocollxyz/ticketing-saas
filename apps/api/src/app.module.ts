@@ -64,11 +64,12 @@ export class AppModule implements NestModule {
       .exclude(
         { path: "health", method: RequestMethod.ALL },
         { path: "auth/login", method: RequestMethod.ALL },
-        { path: "webhooks/(.*)", method: RequestMethod.ALL },
-        { path: "shop/(.*)", method: RequestMethod.ALL },
+        // Comodines con la sintaxis de Express 5 (path-to-regexp 8): `*nombre`, no `(.*)`.
+        { path: "webhooks/*path", method: RequestMethod.ALL },
+        { path: "shop/*path", method: RequestMethod.ALL },
         // Imágenes públicas (las sirve express.static antes de llegar aquí; por si acaso).
-        { path: "uploads/(.*)", method: RequestMethod.GET },
+        { path: "uploads/*path", method: RequestMethod.GET },
       )
-      .forRoutes("*");
+      .forRoutes("{*path}");
   }
 }

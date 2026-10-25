@@ -12,7 +12,8 @@ import type { ServerOptions } from "socket.io";
  * entre instancias. Si Redis no está disponible, se degrada a modo in-process.
  */
 export class RedisIoAdapter extends IoAdapter {
-  private readonly logger = new Logger(RedisIoAdapter.name);
+  // No «logger»: IoAdapter (NestJS 11) ya tiene uno propio.
+  private readonly redisLogger = new Logger(RedisIoAdapter.name);
   private adapterConstructor?: ReturnType<typeof createAdapter>;
 
   async connectToRedis(): Promise<boolean> {
@@ -30,8 +31,8 @@ export class RedisIoAdapter extends IoAdapter {
     };
     const pubClient = createClient(opts);
     const subClient = pubClient.duplicate();
-    pubClient.on("error", (e) => this.logger.warn(`redis pub: ${e.message}`));
-    subClient.on("error", (e) => this.logger.warn(`redis sub: ${e.message}`));
+    pubClient.on("error", (e) => this.redisLogger.warn(`redis pub: ${e.message}`));
+    subClient.on("error", (e) => this.redisLogger.warn(`redis sub: ${e.message}`));
     try {
       await Promise.all([pubClient.connect(), subClient.connect()]);
     } catch (e) {

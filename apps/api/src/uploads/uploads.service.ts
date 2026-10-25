@@ -29,7 +29,7 @@ export class UploadsService {
     if (!file?.buffer?.length) throw new BadRequestException("No se ha recibido ninguna imagen");
     if (!(kind in MAX_SIDE)) throw new BadRequestException("Tipo de imagen inválido");
 
-    let out: { data: Buffer; info: sharp.OutputInfo };
+    let out: { data: Buffer; info: { width: number; height: number; size: number } };
     try {
       // limitInputPixels: evita "bombas" de descompresión (imágenes gigantes en pocos KB).
       const img = sharp(file.buffer, { limitInputPixels: 50_000_000, animated: false });

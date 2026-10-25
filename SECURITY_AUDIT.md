@@ -264,6 +264,18 @@ HTTP en las tablas con RLS.
 - Las rutas que llama el SERVIDOR de la tienda (no el navegador) no se limitan por IP (todos
   los compradores compartirían la del servidor): `confirm-return` se apoya en la firma.
 
+### I2 — Dependencias con vulnerabilidades conocidas ✅ MAYORMENTE RESUELTO (2026-10-25)
+- `npm audit` daba 42 avisos (3 críticos, 17 altos): Next.js, proxy-addr (IP falsa detrás
+  del proxy → saltarse los límites de peticiones), drizzle-orm (inyección SQL en
+  identificadores), multer, body-parser, socket.io, sharp…
+- **Corregido**: NestJS 10 → 11 (Express 5: comodines de rutas con la sintaxis nueva en
+  `app.module.ts`), drizzle-orm 0.45 / drizzle-kit 0.31, sharp 0.35, Next 15.5.28, multer
+  2.5.0 forzado con `overrides` (NestJS aún trae la 2.4.0), lockfile regenerado.
+  Probado: tipos, RLS, compra/reintento, emisión, escaneo, imágenes y tiempo real.
+- **Quedan 6** (1 alto, 5 moderados): PostCSS y Next que solo se arreglan con **Next 16**
+  (PostCSS procesa nuestro propio CSS al compilar: riesgo bajo) y esbuild de drizzle-kit
+  (solo desarrollo). **Pendiente**: Next 16 y repasar `npm audit` antes de producción.
+
 ## Categoría 3 — Anotar y olvidar
 
 - **D2**: PK usa `gen_random_uuid()` (v4) pero §5 dice UUID v7. Comentado en código;
