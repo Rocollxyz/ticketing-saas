@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import QRCode from "qrcode";
 import { listEvents, type PromoterEvent, SHOP_URL } from "../lib/api";
 
 /**
  * Código para vender desde la web del promotor: el script (una vez) y, donde quiera, la
  * cartelera incrustada, un evento incrustado o un botón que abre la compra en una ventana
- * flotante. Con vista previa de la cartelera.
+ * flotante. Con vista previa de la cartelera. Por evento, además, «Compartir»: enlace a
+ * su página en la tienda y un QR descargable (carteles, flyers, redes).
  */
 export default function IntegratePanel({ token, slug }: { token: string; slug: string }) {
   const [events, setEvents] = useState<PromoterEvent[]>([]);
@@ -78,6 +80,7 @@ export default function IntegratePanel({ token, slug }: { token: string; slug: s
               code={`<div data-entradas-evento="${ref}"></div>`}
               plain
             />
+            {ev && <SharePanel url={`${SHOP_URL}/${slug}/event/${ev.id}`} name={ev.name} />}
           </>
         )}
       </div>
@@ -96,6 +99,106 @@ export default function IntegratePanel({ token, slug }: { token: string; slug: s
         Los pagos con tarjeta se hacen dentro de tu web. Bizum y algunos bancos abren su página a pantalla completa y,
         al terminar, el comprador vuelve a la confirmación de la tienda.
       </p>
+    </div>
+  );
+}
+
+/**
+ * Compartir un evento: enlace a su página en la tienda, QR que lleva a ella (PNG para
+ * redes/móvil, SVG para imprenta: escala sin perder nitidez) y el menú nativo del
+ * sistema donde exista (móvil: WhatsApp, Instagram…).
+ */
+function SharePanel({ url, name }: { url: string; name: string }) {
+  const [png, setPng] = useState("");
+  const [svg, setSvg] = useState("");
+  const [copied, setCopied] = useState(false);
+  const canShare = typeof navigator !== "undefined" && !!navigator.share;
+
+  useEffect(() => {
+    // Corrección de errores M: aguanta algo de suciedad o un logo encima en impresión.
+    const opts = { errorCorrectionLevel: "M" as const, margin: 2 };
+    QRCode.toDataURL(url, { ...opts, width: 1024 }).then(setPng).catch(() => setPng(""));
+    QRCode.toString(url, { ...opts, type: "svg" }).then(setSvg).catch(() => setSvg(""));
+  }, [url]);
+
+  // Nombre de fichero legible: «qr-conferencia-esta-en-risc-europa.png».
+  const file =
+    "qr-" +
+    name
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 50);
+
+  async function copy() {
+    await navigator.clipboard?.writeText(url);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  }
+
+  return (
+    <div className="stack" style={{ gap: 6 }}>
+      <strong style={{ fontSize: 14 }}>Compartir</strong>
+      <span className="faint">
+        Enlace a la página del evento en tu tienda. El QR lleva al mismo sitio: ponlo en carteles, flyers o redes.
+      </span>
+      <div className="row" style={{ alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
+        {png && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={png}
+            alt={`QR del evento «${name}»`}
+            width={160}
+            height={160}
+            style={{ borderRadius: 8, border: "1px solid var(--border)", background: "#fff" }}
+          />
+        )}
+        <div className="stack" style={{ gap: 8, flex: 1, minWidth: 220 }}>
+          <pre
+            style={{
+              margin: 0,
+              padding: "10px 12px",
+              borderRadius: 8,
+              background: "var(--bg)",
+              border: "1px solid var(--border)",
+              fontSize: 13,
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-all",
+            }}
+          >
+            <code>{url}</code>
+          </pre>
+          <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+            <button type="button" className="btn" onClick={copy}>
+              {copied ? "¡Copiado!" : "Copiar enlace"}
+            </button>
+            {png && (
+              <a className="btn" href={png} download={`${file}.png`}>
+                Descargar QR (PNG)
+              </a>
+            )}
+            {svg && (
+              <a className="btn" href={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`} download={`${file}.svg`}>
+                QR para imprenta (SVG)
+              </a>
+            )}
+            {canShare && (
+              <button
+                type="button"
+                className="btn"
+                onClick={() => navigator.share({ title: name, url }).catch(() => {})}
+              >
+                Compartir…
+              </button>
+            )}
+            <a className="btn" href={url} target="_blank" rel="noreferrer">
+              Abrir
+            </a>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

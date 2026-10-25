@@ -39,6 +39,7 @@ a { color: var(--accent); }
   padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--card-2);
   color: var(--text); cursor: pointer; font-size: 14px; white-space: nowrap;
 }
+a.btn { display: inline-block; text-decoration: none; }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .btn.success { background: var(--green); border-color: var(--green); color: #08130d; font-weight: 600; }
