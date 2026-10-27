@@ -238,8 +238,8 @@ directorio de promotores en la portada `/` (hoy es una demo fija).
 ### Paso a producción (sin decidir)
 - Sistema propio de despliegue: hosting, dominios, CI/CD, secretos, copias de seguridad
   de la BD, monitorización y logs.
-- Repositorio solo local: **añadir un remoto privado** (GitHub/GitLab) como copia de
-  seguridad.
+- ✅ Remoto privado en GitHub: `Rocollxyz/ticketing-saas` (2026-10-27, solo `main`; las
+  ramas `darrian` y `raquel` siguen solo en local). Guía de VPS en el README.
 
 ---
 
