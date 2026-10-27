@@ -249,7 +249,7 @@ directorio de promotores en la portada `/` (hoy es una demo fija).
   laboratorio en :3010).
 - Siguiente: **fase 0b** (extraer el selector de compra de la ficha de la tienda a
   componentes reutilizables) y **fase 1** (MVP: ~10 bloques, tema, borrador/publicar).
-- Detalle: `DARRIAN.md` en esa rama. Se trabaja en su propia ventana de Claude Code.
+- Detalle: `DARRIAN.md` en esa rama. Se trabaja en su propia ventana del editor.
 
 ## 3. Línea RAQUEL (editor de planos de asientos) — rama `raquel`, `~/vscode/ticket-raquel`
 
@@ -259,7 +259,7 @@ directorio de promotores en la portada `/` (hoy es una demo fija).
   pintar precios, fondo de calco, vista del comprador).
 - Decisiones: Konva; recintos propios del promotor reutilizables; venta mixta en fase 2;
   mesas por silla y por mesa entera.
-- Detalle: `RAQUEL.md` en esa rama. Se trabaja en su propia ventana de Claude Code.
+- Detalle: `RAQUEL.md` en esa rama. Se trabaja en su propia ventana del editor.
 
 ## Coordinación entre líneas
 - `main` nunca recibe trabajo a medias de Darrian/Raquel; se integrarán cuando estén
