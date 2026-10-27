@@ -591,4 +591,6 @@ Detalle y estado en [PENDIENTES.md](PENDIENTES.md). Las más importantes para un
 
 ---
 
-Repositorio privado. Todos los derechos reservados.
+© 2026 Rocollxyz. Todos los derechos reservados. El código es visible públicamente, pero
+no se concede ninguna licencia de uso, copia, modificación ni distribución sin permiso
+expreso del autor.
