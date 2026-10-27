@@ -7,9 +7,12 @@ services:
     environment:
       POSTGRES_DB: ticketing
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      # En un servidor, POSTGRES_PASSWORD en el .env (Compose lo lee solo).
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    # Solo en 127.0.0.1: Docker se salta el firewall (ufw) y, publicado en 0.0.0.0,
+    # Postgres quedaría abierto a internet en el VPS.
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -23,7 +26,7 @@ services:
     container_name: ticketing-redis
     command: ["redis-server", "--appendonly", "yes"]
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redisdata:/data
     healthcheck:

@@ -10,7 +10,13 @@ export interface JwtPayload {
   role: string;
 }
 
-const SECRET = process.env.JWT_SECRET ?? "dev-insecure-secret-change-me";
+const DEV_SECRET = "dev-insecure-secret-change-me";
+// En producción no se arranca sin secreto propio: el de dev es público en el repo y
+// con él cualquiera firmaría sesiones de cualquier promotor.
+if (process.env.NODE_ENV === "production" && (!process.env.JWT_SECRET || process.env.JWT_SECRET === DEV_SECRET)) {
+  throw new Error("Falta JWT_SECRET en producción: genera uno con `openssl rand -base64 48`");
+}
+const SECRET = process.env.JWT_SECRET ?? DEV_SECRET;
 const EXPIRES_IN = "1h";
 
 export function signToken(payload: JwtPayload): string {

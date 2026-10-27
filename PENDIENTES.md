@@ -196,6 +196,14 @@ directorio de promotores en la portada `/` (hoy es una demo fija).
   actividades y conservación de `order.buyer_email`.
 - 🟡 **C2**: validación de entrada en el resto de la API (la gestión de eventos ya valida).
 - **MASTER_KEY**: guardarla a salvo; si se pierde, los QR emitidos dejan de validar.
+- ✅ **JWT_SECRET** (2026-10-27): con `NODE_ENV=production` la API no arranca sin un
+  secreto propio (antes usaba en silencio el de desarrollo, público en el repo).
+- 🟠 **Contraseñas del seed**: el seed es la única forma de crear el admin de plataforma y
+  lo hace con contraseñas fijas (`root1234`…); no hay cambio de contraseña en la app. En un
+  servidor hay que cambiarlas a mano tras el seed (README §Despliegue). Falta un alta del
+  admin de plataforma por variable de entorno y «cambiar contraseña» en las consolas.
+- 🟠 **Emails en producción**: solo existe `FileEmailProvider` (escribe en disco); en un
+  servidor las entradas no llegan al comprador hasta que se haga el servicio propio.
 
 ### Defensa en producción (ver OPERACIONES.md, 2026-10-25)
 - Alertas y monitorización (dinero, ataques, salud técnica).
